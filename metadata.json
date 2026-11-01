@@ -1,0 +1,6 @@
+{
+  "name": "WFM Minimum-HC Sizing & Scheduling Engine",
+  "description": "PRD v7.1 Contact Center Minimum-HC Sizing & Scheduling Engine with Erlang/DES simulation, 5-step Bridge, independent validator, statistical certification, and governance challenger console.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

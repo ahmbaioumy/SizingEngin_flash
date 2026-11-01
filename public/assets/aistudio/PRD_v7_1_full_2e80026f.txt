@@ -1,0 +1,1029 @@
+PRD v7.1 (COMPLETE): Contact Center Minimum-HC Sizing and Scheduling Engine, with Engineering Program
+Type: Single-file offline HTML application, zero dependencies
+Users: WFM planners (history, forecast, requirement, sizing, schedule)
+Structure: Part A = product requirements (Sections 1 to 18, Appendix A). Part B = engineering program: agent team, challenger team, skills, task cards, gate (Sections 19 to 27, Appendix B).
+
+======================================================================
+SECTION 0. VALIDATION OF THE GPT PRD v2.0 (AGENTS, ROLES, PLAN, PHASES) AND CHANGE SUMMARY
+======================================================================
+
+I read the whole GPT document (about 1,700 lines). Its product sections (1 to 18) are a loose summary that regresses against the decisions already made. Its governance sections (19 to 22) have good ideas and real defects. This PRD keeps Part A (the product spec approved through v6.4) and rebuilds Part B from the good parts of GPT's governance.
+
+0.1 Strengths kept
+- No agent approves its own work, and the Worker cannot self-approve.
+- A default-deny release gate that must cite a specific unmet criterion.
+- Reviewer chain by task type, a task template with IDs, acceptance criteria and evidence, and severity levels where Critical and High block approval.
+- Rework loop, per-phase exit criteria, property-based tests and reproducibility tests.
+- Engine before dashboards. Testing from the first phase, not at the end.
+- Open decisions listed before development starts.
+
+0.2 Defects in the GPT governance
+G1 [Critical] Reviewers are "agents" but independence is only declared. Reviewers from the same model, context and prompt share blind spots and tend to agree with the author. No rule makes review independent by construction.
+G2 [Critical] No anti-gaming controls. A Worker could edit tests, loosen tolerances, special-case expected values, or touch the oracle. Nothing protects tests, oracle, tolerances or gate scripts.
+G3 [Critical] Agents self-report test results. "Tests passed" must never be accepted from the author. The gate must re-run everything itself from a clean checkout.
+G4 [High] The oracle is not defined as an independent, blind build. The Algorithm Developer "provides independent test fixtures" for its own code, which is not independent.
+G5 [High] The schedule validator and KPI recalculation have no separate owner, so the same agent could write both generator and validator.
+G6 [High] Phases are horizontal (module by module). The first end-to-end result (an actual minimum HC) arrives only at Phase 8, so integration risk is discovered late. The hardest module (full blended switching, Phase 6) sits before staffing search and roster, delaying the target.
+G7 [High] Phase order contradicts its own release plan: Release 1 is "voice-first" but Phase 6 builds full blended operation before Phase 7 sizing.
+G8 [High] No human authority. The business owner has no defined decision rights, and no path resolves agent disagreement or a deadlocked reject cycle.
+G9 [High] The same six-step review chain applies to every task, including trivial ones, across roughly 130 tasks. This creates bottlenecks and review fatigue, and reviewers start rubber-stamping.
+G10 [Medium] Missing roles: Program Orchestrator (task graph, evidence tracking, WIP limits), Test Engineer, Security and Build Engineer, Technical Writer, Oracle Engineer, Validator Developer. The Chief Architect carries too many duties (design, integration, debt, approval).
+G11 [Medium] "Technical Reviewer" and "Domain Reviewer" appear in GPT 21.4 but are never defined. GPT 19.3 "Agent authority matrix" contains one sentence and no matrix. GPT 20.4 "Recommended specialist skill assignments" is an empty heading. A chat note ("My final recommendations") is left inside the document.
+G12 [Medium] Skills are generic lists with no way to verify an agent actually has them. No calibration (for example seeded-defect exercises) and no measure of reviewer effectiveness.
+G13 [Medium] Evidence is not defined as an artifact set, and sign-offs are not bound to the exact version reviewed, so a sign-off can survive a later change.
+G14 [Medium] Phase 0 spikes have no pass or fail criteria or fallback decisions. Requirements freeze (P0-T01) has no change control afterward. No requirement identifier scheme exists in the document itself.
+G15 [Medium] Final UAT happens only at Phase 12. The business owner sees nothing real until the end.
+G16 [Low] No governance metrics (defect escape rate, review detection rate, rework cycles), and no policy on real operational data in agent workspaces.
+
+0.3 Conflicts between the GPT PRD and your decisions (overridden here)
+- Release 1 "voice-first": your decision is the target chain with voice, chat, email and back-office dedicated pools, forecast module built last within Release 1.
+- Default 5x5 sensitivity levels with all 25 scenarios simulated: conflicts with no hardcoded numbers. Sensitivity is Release 2 with user-defined levels.
+- "Negatives and duplicates must not be removed without a user-approved policy": you asked for removal. Kept as logged, confirmed removal (4.3).
+- Erlang X retained as an option: excluded. Female restrictions by name: generalized to attribute-based rules (Release 2).
+- The GPT product sections omit the locked flow, fidelity gating, per-stage fingerprints, the horizon-level target semantics, minimum seats while open, HC ceiling, statistical decision procedure, and the math corrections found in earlier rounds. Part A restores them.
+
+0.4 What v7.0 added
+Part B: specialist roles plus the human Product Owner, independence-by-construction rules, anti-gaming controls, risk-tiered review, a deterministic evidence gate, vertical-slice phases with business demos, change control and program metrics. Part A was carried from v6.4 with the holdout pack and governance links added.
+
+0.5 What v7.1 changed (Part B)
+1. Every role has an agent card: mission, authority, prohibitions, allowed and forbidden inputs, outputs, skills, and a checklist procedure. A standard prompt skeleton (19.3) makes each card directly usable as an agent instruction.
+2. The Challenger is a team of seven: a Challenge Lead and six domain challengers (math, WFM operations, software and security, data, roster, process red team). They work blind and in parallel, and every finding needs a reproducible counterexample (19.9).
+3. Auditors are split into a code and algorithm auditor and a platform, security and data auditor (19.8).
+4. A skills registry (Section 26) gives every skill an ID, a definition and a proof exercise. Every role and every task lists the skill IDs it needs.
+5. Every task is a task card with requirement references, dependencies, specification owner, implementer, verifiers, reviewers, challengers, skills, inputs, outputs, acceptance tests and attack focus (Section 23).
+6. Communication contracts (Section 27) define the Task Packet, Evidence Package, Finding Report, Attack Log, Sign-off and Escalation formats.
+7. The task state machine, the attack taxonomy (A01 to A12) and the challenger coverage rule are explicit (21.3, 19.9).
+
+======================================================================
+PART A. PRODUCT REQUIREMENTS
+======================================================================
+
+======================================================================
+SECTION 1. TARGET AND DEFINITIONS
+======================================================================
+
+1.1 Target
+The app computes the real minimum HC that achieves the configured KPI targets over the full FCT horizon, based on the FCT volume and AHT, subject to the configured schedule rules and constraints, and shows how that number is built up from the pure business requirement. In Fixed-HC mode it reports the KPIs that a given HC or roster achieves.
+
+1.2 Definitions
+Horizon: the full period covered by the confirmed FCT. Interval: the FCT resolution (15, 30 or 60 minutes), as declared.
+Seat: one agent available to take work during an interval. Seat-hours: seats multiplied by interval length, summed.
+KPI target scope: each target is evaluated once over the horizon, as a ratio of sums.
+Pure requirement (Layer 1): the minimum seat-hours that achieve the horizon KPIs when seats can be placed freely by interval, with no schedule rules and no shrinkage. Shown as seat-hours, peak seats and FTE-equivalent (derived, not a headcount).
+Roster HC (Layer 2): the minimum number of unique agents whose schedules obey every hard rule and whose simulated horizon KPIs pass at the chosen fidelity.
+Gross HC (Layer 3): Roster HC adjusted for the residual shrinkage that the roster does not already model.
+Mode A (Find Min HC): Layers 1, 2 and 3. Mode B (Fixed HC): given HC or roster, achieved KPIs.
+Fidelity: Quick (analytic only, no simulation, "Estimated"), Screened (simulation, sequential stopping allowed, "non-certified"), Certified (full decision procedure of Section 11).
+Requirement identifiers: every numbered item in this PRD (for example 8.4.2 or 13.5) is a requirement identifier used by traceability (14.1, 24.2).
+
+1.3 Bridge (Mode A)
+Pure requirement (FTE-equivalent), then paid time and breaks, then shift shape, then weekly rules, then rounding and simulation adjustment = Roster HC, then shrinkage = Gross HC. Each step shows its delta and cause (8.8).
+
+======================================================================
+SECTION 2. GOVERNING RULES
+======================================================================
+
+2.1 Number Policy
+N1. Every numeric value belongs to exactly one class: U uploaded data; P user parameter (editable, with unit, range, validation, stored in every snapshot); D derived (formula and inputs shown); K named constant (mathematical, unit-conversion, calendar or algorithm constant, with provenance and a pinning test); R result.
+N2. The source may contain only 0, 1 and named K constants. A dependency-free build-time scan fails the build on any other numeric literal. K constants appear in an in-app Constants Register.
+N3. No default operational or statistical values. Required fields start empty. "Insert example" fills editable cells marked "example", and the run is blocked until each is confirmed or replaced. User-created templates (4.10) are user data, not defaults.
+N4. Engine-control parameters are P-class, visible in an Engine Parameters panel, stored in every snapshot, and belong to the stage that uses them (3.4).
+N5. No silent transformation. Clipping, truncation, rounding, imputation, outlier handling, exclusion, removal and aggregation each report count, magnitude and effect on the mean, and each is a switch or parameter. Removal of negative values and duplicates at upload (4.3) is automatic but always logged row by row and confirmed by the user.
+N6. Stored and exported values keep full precision. Display rounding is a visible setting. Every ceiling and floor is labelled in the lineage.
+N7. Every result links to its formula, inputs, parameters, engine hash, data hash and seeds (stored at result-record level).
+N8. Hitting any limit (iteration cap, seat cap, HC ceiling, solver size cap, memory cap, row cap, removed-share limit, precision not achieved) is an explicit warning or error, never a silent answer.
+N9. No NaN or Infinity may cross a module boundary (13.11).
+
+2.2 Zero-Dependency Policy
+Z1. One HTML file. No libraries, runtime fetches, CDN, remote fonts or images. The build fails on any external URL, external module import, fetch, XMLHttpRequest, WebSocket or sendBeacon.
+Z2. Only browser built-ins (DOM, Web Workers, Blob, IndexedDB, typed arrays, TextEncoder and TextDecoder, Intl), each feature-detected at startup and shown in an Environment panel (13.16).
+Z3. No Math.random and no crypto.subtle. The engine has its own keyed generator and hash with published test vectors.
+Z4. All numerical and statistical routines are in-source (normal and t quantiles by numerical inversion, incomplete beta, exact binomial bounds, distribution sampling, QR and IRLS, revised simplex, golden-section search), each verified against external oracle fixtures that the engine never reads.
+Z5. Build and test scripts are dependency-free plain scripts. They are development tools, not part of the shipped file.
+
+2.3 Information Discipline
+A dispatch or routing decision may use only information observable at that moment (arrival time, queue, category, deadline, elapsed waiting, configured expected handling time, agent state). It may not use realized service time, realized patience or future arrivals. A forecast backtest may use only data dated on or before its forecast origin, plus calendar information known in advance. The self-test fails if either rule is broken.
+
+======================================================================
+SECTION 3. LOCKED FLOW, BLOCKS AND FIDELITY
+======================================================================
+
+3.1 Modes
+Mode A Find Min HC. Mode B Fixed HC. Chosen at run setup. Both share S1 to S5.
+
+3.2 Fidelity
+Chosen at run setup and upgradable later. An upgrade creates new results, and earlier ones stay as read-only history. Quick runs the Erlang or workload estimate and the LP roster only. Screened and Certified run the simulation. A stage is Done when completed at the chosen fidelity. Every result screen and export shows the fidelity label. Quick results are called "estimated", never "achieved".
+
+3.3 Stages (a finite state machine; every transition is enumerated and tested)
+S1 Upload FCT. Done when the file is parsed, columns mapped and confirmed (4.1), formats confirmed (13.4), the cleaning report (4.4) shown and confirmed, and any gaps created by cleaning have an explicit treatment. Re-mapping or re-cleaning after S1 is Done creates a new data fingerprint and marks every later stage Stale.
+S2 History. Done when history is uploaded, mapped, cleaned and confirmed the same way, or the user clicks an explicit "Skip history".
+S3 Forecast confirmation. With history, the app shows the comparison (5.6) and the user picks one forecast ("Use my FCT" or "Use app forecast"). Without history, the user's FCT is locked directly. Done when a Forecast Release is locked. Only the locked forecast enters the engine.
+S4 Run setup and configuration. Mode, fidelity, and the three blocks (3.4). Done when every required field is filled, no example value is unconfirmed, and validation is clean.
+S5 Estimate. Erlang (real-time pools) and workload floor (deferrable pools). Done when computed with no blocking warning.
+Mode A: S6 Layer 1 Pure requirement. S7 Layer 2 Schedule (roster generation, independent validation, Roster HC; or ended at the HC ceiling with best-achievable KPIs, 8.9). S8 Layer 3 and Results.
+Mode B: S6B Roster build or evaluation (Section 10). S7B Achievements and Results.
+A stage may also end Done as "declared infeasible with a named cause".
+
+3.4 Configuration blocks, run controls and dependencies
+Business block: pools and queues, horizon KPI targets, service-time and patience inputs, productivity factor per pool, minimum seats while open, occupancy cap, optional guardrails, warm-up, pre-roll, drain window, time quantum.
+Schedule block: roster rules (4.8), roster cycle length, HC search ceiling, and (Mode B) the given HC or uploaded roster.
+Shrinkage block: shrinkage components, contract hours, productive hours per FTE.
+Run controls (one set per stage): fidelity, replication counts, seed blocks, tolerances, iteration caps, solver and heuristic parameters. Display settings affect nothing and stale nothing.
+Dependencies: Layer 1 depends on Forecast Release, Business block, Layer 1 run controls. Layer 2 depends on Layer 1, Schedule block, Layer 2 run controls. Layer 3 depends on Layer 2 and the Shrinkage block (instant recompute). Mode B depends on Forecast Release, Business block, Schedule block, Mode B run controls.
+Each result stores a fingerprint (13.7) of its inputs and upstream results. A changed fingerprint marks that result and everything downstream Stale.
+
+3.5 Lock rules
+Locked stages are visible but disabled, with the reason shown. Stale results stay as read-only history and are never reused. An infeasible result blocks the next stage and names the block to edit. Cancelling leaves the stage Open, and completed replications stay in the cache (13.5). Incomplete work can be saved but cannot advance. Stage states: Locked, Open, In progress, Done, Stale, Blocked. Changing the confirmed forecast creates a new run.
+
+======================================================================
+SECTION 4. INPUTS
+======================================================================
+
+4.1 Upload files, column mapping and field definitions
+4.1.1 Files: FCT (required), history (optional), past forecast (optional), roster (Mode B, optional). All csv.
+4.1.2 System fields:
+FCT: date, interval start, queue, forecast volume (offered), forecast AHT. Optional: segment. Interval resolution and timezone offset are declared.
+History: date, interval start, queue, offered volume, handled volume, AHT (weighted by handled volume). Optional: abandoned volume, segment. If only handled volume exists, the app flags the history as biased low wherever abandonment exists.
+Past forecast: date, interval start, queue, forecast volume, actual volume, forecast AHT, actual AHT (used only to measure the accuracy of the user's FCT process).
+Roster: agent id, pool, date, shift start, shift end, repeated pairs of break start and break duration.
+AHT is volume-weighted whenever aggregated. Each field shows name, required flag, unit or type, and a description.
+4.1.3 Column mapping screen (shown before any rows are processed):
+- Each system field has a dropdown listing the csv headers, so csv headers need not match system names.
+- Suggestions (header comparison after trimming, ignoring case, spaces and underscores, plus a user-editable alias list) are proposals only, never applied until confirmed.
+- Required fields must be mapped. One csv column cannot map to two fields. Unmapped columns are ignored and listed.
+- A combined timestamp column can be split into date and interval start, with the format confirmed.
+- Duplicate headers are shown with column positions ("Volume (col 4)"). A file without header row is supported by position.
+- A preview (row count is a parameter) shows raw cell, mapped field and parsed value, with failed cells highlighted.
+- Queue values are mapped to configured queues or excluded. Unmapped values block S1.
+- A type check reports mapped columns whose cells do not match the expected type.
+- Mappings, aliases and queue-value mappings save as templates (4.10), and a matching template is proposed but must be confirmed.
+- The user can return to mapping at any time before S1 is Done.
+
+4.2 Original and cleaned data
+The original file is never modified. Its hash is stored as the source record. Cleaning produces a derived dataset with its own hash. Both hashes and the mapping are stored in the Forecast Release and in every result's lineage.
+
+4.3 Validation and cleaning rules (fixed order)
+1. Parse and type check. Unparseable cells make the row rejected. Rejected rows (bad formats, missing required values, queue mapping errors) are listed and never silently repaired.
+2. Remove negative values. Any row with a negative numeric value (volume, handled, abandoned, AHT, duration) is removed. A row with AHT of zero or less where volume is positive is also removed and reported as its own category.
+3. Remove duplicates, key (date, interval start, queue, segment if present). Exact duplicates are removed automatically, keeping the first. Conflicting duplicates (same key, different values) need a user-chosen rule before S1 completes: keep first, keep last, or exclude every row of that key. Because negatives are removed first, a negative row cannot conflict with a valid row.
+4. Gap detection. After removal, the app lists every interval inside operating hours that now has no row, distinct from zero-volume and closed intervals, including missing dates and intervals already in the file. The user must choose an explicit treatment: leave missing (blocks S1), treat as zero, interpolate, replace with a selected historical average, or fix the file. Nothing is filled silently.
+5. Reported, not removed: inconsistent totals, outliers (5.2), queues marked outbound (rejected with a message; out of scope in Release 1).
+6. Safety limit. If the share of rows removed exceeds a user-set maximum (no default), S1 is blocked with a warning that a wrong mapping is likely. The user can proceed only by explicit override.
+Roster files use the same rules with key (agent id, date, shift start), and the report states the effect on seat-hours.
+
+4.4 Cleaning report (confirmed before S1 completes)
+Counts (total, accepted, rejected, removed negatives per field, AHT-zero rows, exact duplicates, conflicting duplicates and rule, gaps and treatment). Effect (volume removed absolute and percent, by queue, and workload effect). Every removed or rejected row with original row number, key fields, value and reason. Downloadable cleaned data, removed rows, rejected rows and full report. Confirmation is recorded with the data fingerprint.
+
+4.5 Calendars
+Operating hours, weekly pattern, holidays, Ramadan, Eid and events are user-supplied data only (Islamic dates depend on observation, so none are computed). Calendar overrides can replace allowed shift lengths and weekly-hours range for specified weeks. DST: fixed offset only, ambiguous or missing local times rejected.
+
+4.6 Pools, queues and targets
+A pool is a group of agents with identical eligibility serving one or more queues of the same class (real-time or deferrable), with a queue priority parameter. Release 1 models dedicated pools only, so the total Min HC (sum over pools) may overstate a cross-skilled operation, and the result page says so. Per queue, horizon-level targets: SL (SL1, SL2 or SL3), ASA, answer rate, abandonment cap, optional occupancy cap, and for deferrable queues percent by deadline and end-of-horizon backlog. Analytic curves for a multi-queue pool are aggregate (workload-weighted AHT, single class), labelled approximate. The DES is the authority.
+
+4.7 Service-time, patience and productivity inputs
+Mean and variability (CV or standard deviation) per queue, or an empirical sample. Mean-only input blocks the run until variability is supplied or the user accepts an "uncalibrated variability" warning. A patience distribution is required for real-time queues (flagged "assumed" if no data). Productivity factor per pool (reference group equals one): effective AHT = AHT x factor. The realized mix-weighted AHT is reported.
+
+4.8 Roster configuration (all P-class, no defaults)
+- Allowed shift starts: one list of clock times for everyone (examples only, such as 00:00, 06:00, 07:00, 07:30). The engine may start a shift only at these times. They need not be evenly spaced or on interval boundaries. At least one entry is required.
+- Allowed shift lengths: a list (one entry means fixed). Shift end may cross midnight.
+- Breaks: count, duration, window, minimum separation, paid flag, counts-toward-contract flag.
+- Weekly OFF days and adjacency rule, maximum consecutive working days, minimum rest between shifts, minimum and maximum weekly hours.
+- Roster cycle length in weeks (8.2).
+- Minimum seats while a queue is open (per pool, required).
+- HC search ceiling per pool (required).
+- Occupancy cap (optional, horizon level).
+- Rule class per rule: Hard (default) or Relaxable.
+- Optional guardrails (off by default), used only by 12.6.
+
+4.9 Shrinkage and productive hours
+Each component (leave, sickness, training, meetings, absence, adherence, other) has a rate, a stated base, and optionally a rate per week type. Components already modeled in the roster or simulation are excluded, and the UI blocks the double entry. Contract hours per week and paid-hour definitions derive FTE-equivalent.
+
+4.10 Templates and completeness
+User-owned templates: save any block, load into a new run, copy from a previous run. Loaded values show "from template" and must be confirmed. A completeness meter lists unfilled required fields by block. Mapping templates hold mappings, aliases, split settings, queue-value mappings and the chosen conflicting-duplicate rule. Templates live in the project container and can be exported and imported.
+
+======================================================================
+SECTION 5. FORECAST AND COMPARISON
+======================================================================
+
+5.1 When the app forecasts: only when history is uploaded. Without history, the user's FCT is the forecast, and no forecast accuracy exists.
+
+5.2 History cleaning (after upload cleaning): history window start per queue; exclusion records with reasons; outliers by a robust score (median and median absolute deviation) with a threshold parameter, each point kept, excluded or replaced by the fitted value, with counts and effects reported; only complete days enter daily totals; minimum-history rules are parameters.
+
+5.3 Two-stage structure: daily total per queue, then interval allocation by an intraday profile per day type, plus interval AHT.
+- Profile by Dirichlet-multinomial shrinkage: p_hat_i = (sum over analog days d of w_d x count_d,i + kappa x p_pool,i) / (sum of w_d x n_d + kappa), recency weights w_d (decay parameter), kappa by method of moments (D-class, displayed, user override allowed), optional smoothing then renormalization.
+- Special days use analog days, else the nearest day-type profile flagged "no analog".
+- AHT: day-level volume-weighted mean with an intraday shape.
+- Coherence: interval volumes sum to day totals and queue totals under a visible rounding policy.
+
+5.4 Methods in Release 1: (a) seasonal naive baseline; (b) weighted analog average; (c) quasi-Poisson regression with log link (trend, day-of-week, day-of-month classes, event windows with lead and lag days), IRLS, dispersion from Pearson residuals, HAC standard errors, unbiased on the original scale, handles zero days. Event effects are estimated only if the event occurred at least the minimum-occurrences parameter times, otherwise the user supplies a multiplier flagged "assumed". Moving Islamic-calendar events are confounded with annual seasonality, so the app warns and reports wider uncertainty.
+
+5.5 Backtest and selection: rolling origin, nested tuning, leakage assertion; WAPE, MAE, signed bias at interval, day and week level by lead bucket and day type, zero denominators counted. A method is recommended only if its out-of-sample loss beats seasonal naive by a paired block-bootstrap interval excluding zero, with Holm correction across methods. Otherwise the baseline is used and labelled.
+
+5.6 Comparison report (history present): app forecast versus the user's FCT by interval, day, week and queue (volume, difference, bias, WAPE between them, AHT and workload difference), largest disagreements ranked, the app forecast's backtested accuracy, and the user's FCT accuracy only if a past-forecast file exists. Otherwise it states that it shows disagreement, not which forecast is right. No simulation is involved.
+
+5.7 Confirmation and Forecast Release: immutable and versioned (chosen forecast by queue and interval, original and cleaned data hashes and mapping, calendar, which forecast was chosen, comparison report, and for the app forecast its method, coefficients and backtest). Every result shows "FCT: yours" or "FCT: app".
+
+======================================================================
+SECTION 6. DEMAND GENERATION
+======================================================================
+
+6.1 G1 Reconciled (default): interval counts equal the forecast under the rounding policy, keyed uniform timestamps within each interval. G2 Poisson (option): exact Poisson counts by log-domain recurrence from the mode. The mode is shown in results.
+6.2 Rounding: carry-forward cumulative rounding preserves the horizon total. A reconciliation table shows expected, generated and difference per queue and interval, for volume and AHT.
+6.3 Determinism: every random value is a pure function of its key (seed block, replication, queue, kind, day or interval, rank, attempt). Contact identity is (queue, day, rank). A 53-bit open-interval uniform is built from two mixed 32-bit words. Contacts are generated lazily (13.6).
+
+======================================================================
+SECTION 7. LAYER 1: PURE REQUIREMENT
+======================================================================
+
+7.1 Hours and valid bounds
+Workload W (hours) = sum over horizon of volume x AHT x productivity factor / seconds-per-hour, plus opening WIP for deferrable pools.
+phi_min = the smallest fraction of offered contacts that the active horizon targets force to be answered (answer-rate target a gives a; abandonment cap b gives 1 - b; SL1 target tau gives tau; SL2 and SL3 give none unless supplied; with infinite patience and no abandonment target it is one).
+Necessary conditions are horizon-level only: total seat-hours must exceed phi_min x W strictly, and be at least phi_min x W / c if an occupancy cap c is set. There are no per-interval floors. Per-interval conditions come only from the minimum seats while open.
+FTE-equivalent = pure seat-hours / hours per FTE over the horizon (contract hours per week times weeks, before breaks and shrinkage), labelled "contract-hours basis".
+
+7.2 Erlang module (real-time pools; seed, ranking aid and benchmark)
+Erlang B by recurrence: B(0) = 1, B(n) = A x B(n-1) / (n + A x B(n-1)). Erlang C: C = N x B / (N - A x (1 - B)), N > A; SL = 1 - C x exp(-(N - A) x T / AHT); ASA = C x AHT / (N - A). Erlang A (abandonment rate = 1 / mean patience): recurrence under a tolerance parameter, waiting-time distribution numerically, withheld until it matches the DES within pre-registered tolerances. Every Erlang screen shows inputs, formula, assumptions, limitations, warnings. The DES governs. Deferrable pools do not use Erlang: N_min = (workload + opening WIP) / per-agent capacity over the horizon, reduced by the cancellation share if tasks can expire.
+
+7.3 KPI definitions (formulas shown, variants per queue)
+SL1 = answered within T / offered. SL2 = same with short abandons removed from the denominator. SL3 = answered within T / answered. ASA, answer rate, abandonment (with and without short abandons). Occupancy = (talk + hold + ACW) / (talk + hold + ACW + ready-idle), over the horizon. Deferrable: percent completed by deadline over the horizon and end-of-horizon WIP. All horizon KPIs are ratios of sums within a replication.
+
+7.4 DES core
+Event-driven clock. Times are integer multiples of the time quantum in Float64 (exact to 2^53), so within-replication time sums are exact. Ties break by event-type order, then entity id. Service times: keyed unit-mean standardized variates (for example lognormal with log-variance ln(1 + CV^2)) times AHT and factors; truncation bounds are parameters and the realized mean and CV are reported. Opening state: empty, pre-roll, or user WIP; warm-up truncation parameter, optional MSER. Policies (P-class): shift-end behavior, break-start deferral rule and maximum deferral, adherence offsets, idle-agent criteria, priority weights. Seat-curve mode (Layer 1): capacity changes at interval boundaries, reductions release idle seats first. Replication = one full horizon.
+
+7.5 Real-time mechanics
+Dispatch: eligibility, capacity, queue priority. Event queue O(log E). Longest-idle selection O(log A) amortized. Chat concurrency: each chat has remaining effort w; progress rate per chat is 1 / f(k) when k chats are active on that agent (user table); when k changes, remaining effort is advanced and completion events rescheduled with version stamps. Effort accounting and routing fill policy are parameters. Uncalibrated tables warn.
+
+7.6 Deferrable mechanics
+Dispatch rule is a parameter (EDF, Latest Safe Start, slack-based), no optimality claimed. Latest Safe Start = deadline minus expected remaining handling on the business calendar (2.3). Cases can be parked and resumed at day close. Idle-agent assignment uses an ordered criteria list (case count, utilization, workload, idle time) with a tolerance band per criterion. Drain window is a parameter, drain consumed is reported, remaining backlog makes the candidate infeasible. A per-case ledger is available through seeded replay.
+
+7.7 Pure requirement solver
+1. Gain curves G_i(s) (expected contacts answered within threshold in interval i with s seats) from the minimum seats while open up to the maximum-seat parameter, from Erlang C (s above load), Erlang A (once verified) or budgeted DES finite differences. Without verified Erlang A, ranking is restricted to s above load, flagged "analytic floor in use", and DES descent may remove seats below it. Multi-queue pools use the aggregate curve.
+2. Concavity test per curve; the upper concave envelope replaces a curve only where concavity fails (interval flagged).
+3. Minimize total seat-hours subject to the horizon KPI rows and the minimum seats while open. Filling seat increments in order of gain per seat-hour solves the analytic problem for concave curves. The ordered list defines a nested path P(k), where P(k+1) contains P(k).
+4. UI caveat: a horizon-level optimum may leave intervals near critical load where stationary formulas are least accurate. The DES is the authority.
+5. DES calibration: shift each gain curve by its measured per-interval discrepancy and re-solve (iteration count is a run control).
+6. DES descent: deterministic local search removing one seat-increment at a time while still passing (budget is a run control).
+7. Search and certification follow Section 11 over the path. Quick stops after item 3.
+8. Claim: minimal along the path with descent applied. Global minimality is not claimed.
+
+======================================================================
+SECTION 8. LAYER 2: SCHEDULE AND ROSTER HC
+======================================================================
+
+8.1 Problem: find the smallest HC h per pool such that h agent schedules satisfy every hard rule (4.8), start shifts only at allowed starts, use only allowed lengths, and whose simulated horizon KPIs pass at the chosen fidelity. The independent validator (8.6) must pass. Search is bounded by the HC search ceiling.
+
+8.2 Columns and LP
+- A column is one agent's schedule over one roster cycle (cycle length in weeks): starts and lengths from the allowed lists, OFF days, breaks in windows, every rest, consecutive-day and weekly-hours rule obeyed including cycle wrap-around. The horizon roster is the cycle repeated with calendar overrides applied (truncated if the horizon is shorter). The UI states that week-to-week volume variation is absorbed by the horizon KPI and not followed by the roster, and shows coverage versus requirement by week.
+- Coverage of an interval by a column is the fraction worked (pro-rata for mid-interval starts), net of the minimum break share forced by break windows, so the LP stays a valid relaxation. The DES uses exact times.
+- LP (analytic model): minimize agents subject to coverage_i >= minimum seats while open + seat increments in interval i, and the horizon KPI rows measured by gain-curve segments. The optimum is the "model-based bound".
+- Column generation: the pricing problem is a dynamic program over cycle days with state (cycle day, consecutive-work run, previous shift end, OFF days used this week, hours used this week), exact for the modeled rules, run until no schedule has reduced cost below minus the tolerance.
+- Scale controls: a size estimator computes rows and expected columns before the run. LU factorization with periodic refactorization. Dense storage only if under the memory cap. Dual stabilization box and tailing-off detection (window and tolerance are run controls). A stalled or capped solve makes the bound "approximate", not valid. Beyond the size cap the bound is "n/a". Status (optimal, stalled, iteration cap, numerical trouble) is reported.
+
+8.3 Rigorous lower bound: HC_rigorous = ceil(minimum seat-hours bound of 7.1 / M), where M is the maximum seat-hours one agent can supply over the horizon under the hard rules (same dynamic program, maximizing seat-hours net of forced break share). It does not depend on Erlang.
+
+8.4 HC search: (1) bracket from the larger bound up to a feasible heuristic roster (round up, diving, seeded multi-start local search), capped at the HC ceiling; (2) for candidate h, build the best roster for h (LP in maximization form, rounded), simulate at Screened settings, bisect; (3) certify with the fixed-sequence descending procedure over h (Section 11); (4) if monotonicity is violated across a sweep, report it and certify the lowest PASS in the unbroken descending chain. Quick stops after the LP roster and heuristic.
+
+8.5 Breaks and closed loop: one break per shift by exact min-cost flow, several breaks by sequential flows (labelled heuristic). Loop with monotone structure: up-phase raises requirements where the DES shows the largest KPI deficit until pass or cap; down-phase tests reductions one at a time from a PASS state and accepts only those staying PASS. States are hashed, repeated states end with "cycle detected", and the best roster is kept.
+
+8.6 Independent schedule validator: a separate module written from the rule text of 4.8, importing nothing from the roster generator, LP or DES, with its own time handling. It recomputes every rule from the raw shift list (allowed starts and lengths, breaks in windows with separation and paid flags, OFF days, maximum consecutive days including cycle wrap, rest gap, weekly hours, minimum seats while open, occupancy cap) and runs on every roster. For generated rosters any Hard violation blocks the result. For an uploaded roster (Mode B) violations are findings only. A KPI recalculation module, also independent, recomputes reported KPIs from simulation event records. Both are cross-checked against the external oracle (14.2).
+
+8.7 Rule classes and constraint impact: each rule is Hard, Relaxable with approval, or Preference. Mandatory rules are never relaxed automatically. Constraint impact re-solves with each relaxable rule relaxed, warm-started from the original solution, so reported HC is never worse. Savings within the solver gap are "within solver uncertainty". The table shows HC saved per rule and an "interaction" row. Attribution depends on order and is not claimed additive.
+
+8.8 Bridge steps (Mode A), cumulative LPs with rule groups added in fixed order: Step 0 pure seat-hours over contract hours per FTE; Step 1 plus paid time and breaks; Step 2 plus shift shape (starts and lengths, daily); Step 3 plus weekly rules (OFF, rest, consecutive days, weekly hours, cycle wrap); Step 4 integer roster from the heuristic (model-based); Step 5 Roster HC at the chosen fidelity, with the difference from step 4 shown as "simulation adjustment". Steps 0 to 4 are labelled "model-based".
+
+8.9 Diagnostics and ceiling: uncovered intervals are named, and the engine never adds a start time on its own. The report names the one extra start time that would save the most heads (from reduced costs, model-based). If no roster is feasible the binding constraint is named. If the HC ceiling is reached without a pass, the stage ends "target not achieved at ceiling", a Mode B evaluation at the ceiling shows best-achievable KPIs and shortfalls, and no Min HC is claimed.
+
+======================================================================
+SECTION 9. LAYER 3: SHRINKAGE AND GROSS HC
+======================================================================
+
+Gross HC = Roster HC / (1 - residual shrinkage), with denominator and components displayed. Same-base components add; different-base components compound explicitly. With category-specific rates, gross each category, sum, then apply one ceiling. Per-week-type rates are averaged with weights equal to each week's rostered seat-hours (displayed). Anything already modeled in the roster or simulation is excluded. The delta is attributed per component. Monte Carlo reliability is Release 2.
+
+======================================================================
+SECTION 10. MODE B: FIXED HC
+======================================================================
+
+10.1 Inputs per pool: a rostered HC (roster built for it); a gross HC (converted: rostered = floor(gross x (1 - residual shrinkage)), shown); or an uploaded roster (mapped and cleaned per 4.1 to 4.4; allowed starts and lengths not enforced, validator findings shown).
+10.2 Build for a given HC: maximize the horizon KPI gain subject to the number of agents equal to the given HC (LP in maximization form), round, improve by seeded local search. Hard rules and lists apply to generated rosters.
+10.3 Evaluation: DES over the full horizon at the chosen fidelity, each KPI tested by Section 11 (PASS, FAIL, INCONCLUSIVE with interval and margin), binding KPI named. Quick reports "estimated" KPIs.
+10.4 Outputs: achieved KPIs versus targets and shortfalls; coverage versus requirement by interval, day and week; seat-hours versus pure requirement (from Layer 1 if a matching Mode A result exists, else analytic and labelled); gap to Min HC only if a matching Mode A result exists, otherwise a button runs Mode A upward from the given HC; validator report; information-only distributions of daily and interval SL.
+10.5 Flow: S1 to S5, then S6B and S7B. No Layer 1 certification is required.
+
+======================================================================
+SECTION 11. STATISTICAL DECISION PROCEDURE
+======================================================================
+
+11.1 Each candidate (path index k, HC h, or the given HC) is simulated for R replications of the full horizon. Each active KPI gives values m_1..m_R (ratios of sums). Targets have a direction (higher-is-better such as SL, answer rate; lower-is-better such as abandonment, ASA, occupancy cap).
+11.2 Bounds: bound-based (default) uses a one-sided t bound on the across-replication mean at the configured confidence level; if the skew diagnostic exceeds its threshold a studentized bootstrap with keyed resampling replaces it. Probability-based (option): trial unit is one replication, exact binomial bound, derived minimum R (smallest R with P(Bin(R, 1 - p0) <= f) <= alpha; for zero failures R >= ln(alpha) / ln(p0)). If it exceeds R_max the target is "not certifiable".
+11.3 Outcomes: per constraint PASS, FAIL or INCONCLUSIVE. Overall PASS needs every active constraint PASS (intersection-union). Overall FAIL when any constraint is FAIL, with Holm correction.
+11.4 Seed blocks (search, pilot, certification) are independent. R is the smallest value whose bound half-width is at most the precision parameter (iterated, capped by R_max, precision-not-achieved raised if capped; maximum over constraints). Certification uses a fresh block with fixed R and no peeking. Each re-certification consumes a new block (maximum is a run control), and only the final block supports the reported interval. Screened runs may stop sequentially and are non-certified.
+11.5 Certification (fixed-sequence descending): the search and pilot blocks give a candidate c_s. A fresh block evaluates c_s, then the next-lower candidate, and so on in that pre-specified order with the same replications, continuing while PASS and stopping at the first non-PASS. The certified minimum is the lowest candidate in the unbroken PASS chain, with probability of certifying an inadequate candidate at most alpha. If c_s fails, ascend with fresh blocks, then certify with another fresh block.
+11.6 Minimality evidence (Mode A): certified HC (or seat-hours) with KPI intervals; the result at one fewer and its failing KPI; the indifference zone; rigorous bound, model-based bound and gap. Wording: "No roster of h minus 1 was found that passes. This is not a proof that none exists." Screened is labelled non-certified, Quick shows only bounds.
+
+======================================================================
+SECTION 12. RESULTS AND REPORTING
+======================================================================
+
+12.1 Mode A headline: the bridge. Layer 1 pure requirement (seat-hours, peak seats, FTE-equivalent); Layer 2 Roster HC with bridge steps and per-rule effects; Layer 3 Gross HC attributed per component. Each shows its fidelity label and "FCT: yours" or "FCT: app".
+12.2 Achievements (both modes): each horizon KPI with value, interval, target, margin, pass or fail, binding constraint, per-pool status, total HC as the sum over pools with the dedicated-pool note.
+12.3 Rule compliance: validator report rule by rule.
+12.4 Proof panel (Mode A): the evidence of 11.6.
+12.5 Information-only views: daily and interval SL distributions, coverage versus requirement by interval, day and week, start and length distributions. A note says a horizon target can hide weak days or intervals.
+12.6 Guardrail cost (on demand, information only): the user enters a guardrail (for example a daily SL floor and the share of days that must meet it), the app re-solves Min HC with it and reports the extra HC. It never changes the headline.
+12.7 Assumption exposure: for each Assumed or uncalibrated input, the user sets a low and high value, the app re-solves at Screened or Quick fidelity and reports the change in Roster and Gross HC. On demand, never blocking.
+12.8 Roster outputs: agent-by-day schedule, break schedule, start and length distributions, OFF distribution.
+12.9 Drill-down to date, interval, queue, agent and interaction or case through seeded replay (identified by seed, engine hash, release and parameter fingerprint).
+
+======================================================================
+SECTION 13. SYSTEM ARCHITECTURE AND SOFTWARE ENGINEERING
+======================================================================
+
+13.1 Layers, top to bottom: UI; Orchestrator (flow state machine, fingerprints, job scheduling, store); Worker layer (job runner, replication cache); Engine core (math kernel, keyed generator, statistics, Erlang, DES, solvers, forecast, validator); I/O (CSV, ZIP container, XLSX writer, hash). Dependencies point downward only, the engine core imports nothing from UI, workers, storage or I/O, and circular dependencies are build errors.
+13.2 Engine core purity: deterministic functions of (inputs, seeds), no global mutable state, DOM, Date, Math.random, storage or timers. The same core text runs in a Worker, the main thread and the Node test harness (a development tool). A test asserts the core text contains none of the forbidden references.
+13.3 Data model and time: typed arrays and plain objects validated against schema at boundaries. Dates are integer day numbers from a documented civil-calendar algorithm (K constants with an oracle test), fixed offset, no Date object in the engine, no localized date parsing. Durations in seconds.
+13.4 Ingestion: in-source RFC 4180 parser exposing raw headers to the mapping screen. User-selected delimiter, decimal and thousands separators with preview. Selectable encoding (UTF-8 with BOM handling, windows-1252 and others via TextDecoder). Explicit date format with ambiguity flags, explicit AHT unit with median shown. Cleaning (4.3) runs in a worker in fixed order with original row numbers. Chunked reading, row cap parameter (N8). Typed columns.
+13.5 Workers: pool size parameter capped by logical processors; single-thread chunked fallback with warning. No SharedArrayBuffer. Immutable inputs transferred once per worker (memory = input size times workers, shown). A job is (candidate fingerprint, seed block, replication index) returning small aggregates, ledgers only on replay. Progress every K events (parameter). Cancellation terminates and respawns the worker. A replication cache keyed by (candidate fingerprint, seed block, replication index) makes resume identical to an uninterrupted run. Reductions in replication-index order. Structured worker errors, no retry of deterministic failures. JIT canary: fixed exp, log and pow calls cold and warm compared bitwise, with in-source sampling functions engaged if they differ and recorded.
+13.6 Memory: contacts generated lazily per interval window, preallocated arrays from estimator capacities, ledgers only on replay, memory cap parameter checked before the run.
+13.7 State and fingerprints: one store, immutable result records keyed by fingerprint, engine holds no hidden state. Canonical serialization (sorted keys, UTF-8, shortest round-trip numbers, typed arrays as dtype, length and little-endian bytes). In-source 128-bit non-cryptographic hash with published test vectors, used for engine hash, data hashes and project integrity.
+13.8 Project container: a stored ZIP with manifest (schema version, engine hash, entries and hashes, fingerprints), JSON entries for configuration and records, binary typed-array entries. It holds cleaned datasets, removed and rejected rows with the cleaning report, mappings, original-file hashes (original bytes optional). Load validates manifest, sizes, hashes and schema, rejects oversized, truncated or altered files, and migrates step by step with a report.
+13.9 Persistence and export: the project file is the system of record; IndexedDB is an autosave cache with atomic snapshots, parameters for interval and number of last-good snapshots, recovery offer after abnormal exit, quota and clear-on-exit risk shown. File System Access used if available, else Blob download. Export CSV and JSON for every table and XLSX for results (own writer, stored ZIP with CRC32, shared strings, 1900 date quirk handled, sheets over the row limit split and reported, cells starting with =, +, - or @ sanitized). XLSX import is Release 2.
+13.10 Security: textContent rendering only, no innerHTML on data, no eval or Function. Build-generated CSP: default-src none; script-src by hash; worker-src blob; connect-src none; img-src data. The Environment panel verifies the policy and worker creation. Untrusted files are validated against schema and limits, keys __proto__, constructor and prototype rejected. Nothing is written without a user action, no data leaves the device.
+13.11 Errors: structured codes with user message and technical detail, global handlers, finite-value containment at every module boundary, local ring-buffer diagnostics log exportable by the user, no network reporting.
+13.12 UI: vanilla JavaScript render functions and event delegation, no heavy main-thread computation (all engine work including Quick and cleaning runs in workers), virtualized tables, in-source canvas or SVG charts, keyboard navigation, labels, contrast, no color-only status, string table for all UI text, Intl formatting with explicit locale. Right-to-left is Release 2.
+13.13 Build: modular source assembled by a dependency-free deterministic script. The build embeds the engine hash, file hash and CSP script hash (shown in an About panel) and runs scans: number policy, external references, forbidden APIs in the engine core, innerHTML on data, circular dependencies, requirement coverage.
+13.14 Self-test: runs in a worker on demand and when the engine hash is new, stamped with the engine hash. Results from an engine hash with no passing self-test are "unverified engine".
+13.15 Versioning: results store engine hash and schema version. Results from another engine hash are "foreign", viewable but not reused for gap comparison or certification evidence.
+13.16 Environment: required Web Workers from Blob, IndexedDB, typed arrays, Blob download, TextDecoder, Intl. Optional File System Access, DecompressionStream. Missing required capability shows an unsupported-environment screen. Supported browsers are decided by Phase 0 results.
+
+======================================================================
+SECTION 14. VERIFICATION AND VALIDATION
+======================================================================
+
+14.1 Method
+- Fail-first: every defect fix starts with a failing test, captured output and a control case that passes before and after. The legacy suite is append-only. No test framework is added.
+- Traceability: each test names the requirement identifiers it covers. The build fails if a numbered requirement has no covering test or is not marked "not testable" with a reason.
+- Oracle: a separately implemented reference (outside the app, another language, written blind from the specification, 20.2) generates expected values for the published test pack. The engine matches within pre-registered tolerances.
+- Holdout pack: a sealed set of cases authored by the Oracle Engineer that developers never see, run only by the Gate (22.2). Failures on it block approval.
+- Tolerances and test parameters are visible, fixed before running, seeded. Test vectors are data and never feed the engine.
+
+14.2 Tests (T-numbers are referenced by the task cards in Section 23)
+Flow and policy:
+(1) Number Policy and external-reference scans pass.
+(2) Every enumerated flow transition is tested, a later stage cannot open until its predecessor is Done, a cancelled run does not complete a stage, an infeasible result blocks the next stage.
+(3) Fingerprints: Schedule-block edits leave Layer 1 Done and stale Layers 2 and 3; Layer 2 run-control edits stale only Layers 2 and 3; Shrinkage edits stale only Layer 3; Business-block edits stale Layers 1 to 3; display settings stale nothing; stale results are never reused.
+(4) Only the confirmed forecast reaches the engine.
+(5) Quick results never contain "achieved" or "certified", and every exported number carries its label.
+Architecture and software:
+(6) Core purity and identical result hash in Node and worker.
+(7) Byte-identical results for any worker count and the single-thread fallback.
+(8) Cancel and resume equals uninterrupted.
+(9) JIT canary agrees or the fallback is recorded.
+(10) Ingestion: semicolon delimiter, decimal commas, BOM, windows-1252, quoted newline, ambiguous date, minutes-based AHT parsed correctly after explicit selection; chunked equals whole.
+(11) Calendar conversions equal the oracle over a wide range including century leap rules.
+(12) Canonical form and hash match published vectors.
+(13) Container round trip is identical; flipped byte, truncation, oversized length, __proto__ keys rejected.
+(14) HTML in queue names renders as text.
+(15) CSP blocks a test fetch and allows Blob workers.
+(16) Injected NaN stopped with a code.
+(17) Crash recovery offers the last good snapshot, never half-written.
+(18) A new engine hash shows "unverified engine" until the self-test passes.
+(19) Foreign results excluded from gap comparison.
+(20) Build scans fail on a planted literal, external URL, innerHTML on data, circular dependency.
+Engine:
+(21) Stationary DES of M/M/N matches Erlang C (infinite patience), Erlang A (exponential patience), Erlang B (no queue), using warm-up truncation and batch-means errors with pre-registered tolerances.
+(22) Statistical functions match oracle fixtures.
+(23) Exact Little identity (integral of number in system equals total in-system time within the horizon, exact in integer arithmetic) and conservation (offered = answered + abandoned + waiting + in service).
+(24) Agent time ledger reconciles exactly.
+(25) Generator battery and uniform strictly inside (0, 1).
+(26) A test fails if dispatch reads realized service time or patience.
+(27) Halving the productivity factor halves realized handle time.
+(28) Multi-queue pool workload matches hand computation, curve labelled approximate.
+Layer 1:
+(29) A horizon-target case leaving one interval at the minimum seats is found; per-interval floors absent.
+(30) The seat-hours bound uses phi_min only and never exceeds the true optimum with abandonment.
+(31) The concavity test flags a constructed non-concave curve and uses the envelope only there.
+(32) Nested path and monotonicity sweeps.
+Layer 2:
+(33) Validator detects planted violations of every rule, passes a valid roster, and a static check shows it imports nothing from generator, LP or DES.
+(34) Generated rosters use only allowed starts and lengths.
+(35) Pricing DP matches brute force including cycle wrap; LP bound never exceeds a feasible integer roster; a stalled solve is "approximate".
+(36) Rigorous bound never exceeds certified HC.
+(37) Each cumulative bridge step is at least the previous one.
+(38) Relaxed HC never exceeds original; cycle detection triggers on an oscillating loop.
+(39) Uncovered intervals and the best extra start time match brute force on a small case.
+(40) Ceiling below the true minimum ends "target not achieved at ceiling" with best-achievable KPIs.
+Mode B:
+(41) A constructed roster returns hand-computed KPIs.
+(42) A given HC below the rigorous bound returns FAIL with an explanation.
+(43) An uploaded roster with planted violations is evaluated and every violation listed.
+(44) Gross-to-rostered conversion matches hand computation.
+Statistics:
+(45) A candidate whose mean clears the target but whose bound does not is never PASS; Monte Carlo on synthetic monotone curves shows the false-certification rate at most alpha plus tolerance; intersection-union and Holm tested.
+(46) Derived minimum R matches hand values and a target needing more than R_max is not certifiable.
+(47) Seed blocks never overlap and each re-certification uses a fresh block.
+Forecast:
+(48) A backtest given a future row fails the leakage assertion.
+(49) Quasi-Poisson regression is unbiased on the original scale, uncorrected log-scale least squares fails.
+(50) Synthetic recovery of level, trend, weekly pattern and event effects.
+(51) Dirichlet-multinomial variance matches the formula and large kappa gives the multinomial.
+(52) Pure seasonal-naive data gives no complex-method recommendation, Holm applied.
+(53) Comparison report matches hand-computed differences, bias and WAPE.
+(54) Identical history, calendar and parameters give a byte-identical Forecast Release.
+General:
+(55) Degenerate inputs (zero volume, zero seats, empty start list blocks S4, single-entry start list, shift longer than open hours, one-day horizon, horizon shorter than cycle, empty or too-short history, outbound queue rejected).
+(56) Round trip of all exports and templates.
+Mapping and cleaning:
+(57) Fully renamed headers import after mapping; an unmapped required field blocks S1.
+(58) Two fields on one column rejected, duplicate headers shown by position, headerless mapping by position, combined timestamp splits, unmapped queue value blocks.
+(59) A matching template is proposed but not applied until confirmed.
+(60) Negative rows removed and logged with row number and reason; AHT zero with volume reported separately.
+(61) Exact duplicates removed keeping the first; conflicting duplicates block S1 until a rule is chosen, each rule giving hand-computed results.
+(62) A negative row sharing a key with a valid row leaves one valid row and no conflict.
+(63) Gaps from removal block S1 until a treatment is chosen and are never counted as zero without that choice.
+(64) A mostly-negative or duplicate file blocks above the user-set share.
+(65) The original file hash is unchanged by cleaning, the cleaned hash is deterministic, re-mapping changes the fingerprint and stales later stages.
+(66) Roster uploads remove duplicate and negative-duration rows with logged seat-hour effect.
+
+14.3 Acceptance case pack (authored in Phase 0 by the Oracle Engineer)
+Case 1 one voice queue, flat demand, one day (Erlang tables and stationary DES). Case 2 two days, horizon SL target (brute-force optimum on a small instance). Case 3 one deferrable queue with a deadline (hand-computed N_min and DES). Case 4 tiny cycle with three allowed starts (brute-force roster enumeration). Case 5 Mode B with a given roster (hand-computed coverage and KPIs). Case 6 forecast with a known generating model. Case 7 adversarial: start list that cannot cover the night, ceiling below true minimum. Case 8 reference workload for performance. Case 9 upload with renamed columns, planted negatives, exact and conflicting duplicates. Release requires all nine at pre-registered tolerances and the holdout pack. The Product Owner reviews Cases 1 to 5 in the UI for plausibility.
+
+======================================================================
+SECTION 15. PERFORMANCE
+======================================================================
+
+Wall-time and memory targets per fidelity for forecasting, Layer 1, Layer 2 and Mode B, the maximum horizon length, upload and cleaning time for the maximum file, and the main-thread responsiveness target are Product Owner inputs recorded after the Phase 0 benchmark (Appendix A, TBD). Acceptance is measured on Case 8 (W_ref for sizing and roster, W_fct for forecasting), with parameters recorded alongside every benchmark. Estimators derive from job structure, and the pre-run estimator shows the cost of each fidelity before the run.
+
+======================================================================
+SECTION 16. RELEASES
+======================================================================
+
+16.1 Release 1 (the target chain): locked flow, three config blocks with run controls, fidelity choice, templates; upload with column mapping and logged removal of negatives and duplicates; Mode A (three layers, bridge, proof panel, assumption exposure, guardrail cost, validator) and Mode B; FCT upload, optional history, forecast generation (seasonal naive, weighted analog, quasi-Poisson regression), backtest, comparison, confirmation; dedicated real-time (voice, chat) and deferrable (email, cases, back-office) pools, outbound rejected; Erlang B, C, A (after verification); keyed-generator DES with G1 and G2; the roster rules of 4.8 and productivity factor; csv input and csv, json, xlsx export; the architecture of Section 13.
+
+16.2 Release 2 backlog
+- Forecast-error generation (G3): draw daily volume and AHT errors from backtest residuals, scale-aware, resampled jointly by date block across queues, to size for forecast risk.
+- More forecast methods: exponential smoothing, intermittent-demand with bias correction, ensemble with nested weights, override logging with uncertainty.
+- Scenario manager and volume-by-AHT sensitivity grid (user-defined levels) with nested controlled comparison.
+- Blended pools: agents shared across pools, channel switching rules, divisor apportionment across shared categories.
+- Team ON/OFF, attribute-based shift windows, team composition ratios.
+- Reliable gross by Monte Carlo with correlated absence, and new-hire ramp curve.
+- Historical replay to validate the simulator against past staffing and KPIs, and calibration.
+- XLSX import, actual-arrival replay (G4), cross-engine reproducibility, outbound workload modeling, right-to-left layout and translations.
+
+======================================================================
+SECTION 17. DESIGN DECISIONS
+======================================================================
+
+D-01 Erlang plus simulation, interval-based.
+D-02 Locked flow as an enumerated state machine with fingerprint staleness across three blocks and per-stage run controls.
+D-03 One forecast is confirmed and only it reaches the engine.
+D-04 Targets are evaluated once over the full horizon; HC is constant over the horizon.
+D-05 Headline is the three-layer bridge; steps 0 to 4 model-based, step 5 carries the fidelity label.
+D-06 Search variable is HC; a column is one agent's schedule over a roster cycle.
+D-07 Sizing on the FCT as given (G1); forecast risk is Release 2.
+D-08 One allowed-start list for everyone, no default; shift lengths are a user list.
+D-09 Minimum seats while open and the HC ceiling are required parameters; per-interval floors withdrawn.
+D-10 Minimality wording: feasible HC at the chosen fidelity with rigorous bound, model-based bound and gap; no claim of proven global minimum.
+D-11 Gross HC uses expected shrinkage only, weighted by week type.
+D-12 Dedicated pools in Release 1 with overstatement warning; outbound out of scope.
+D-13 Deferrable dispatch rule is a parameter, no optimality claim.
+D-14 Certification by fixed-sequence descending procedure with fresh seed blocks.
+D-15 The validator and KPI recalculation share no code with the generator and DES and are mandatory.
+D-16 Reproducibility Level 1 with JIT canary.
+D-17 Fidelity chosen at run setup and labelled everywhere.
+D-18 Fixed-HC mode in Release 1, no Layer 1 certification needed.
+D-19 Guardrail cost is information only.
+D-20 Forecast module built last in Release 1.
+D-21 Pure engine core.
+D-22 Stored ZIP project container, IndexedDB cache only.
+D-23 Integer day numbers, fixed offset, no Date in the engine.
+D-24 No SharedArrayBuffer.
+D-25 textContent rendering, hash-based CSP, validated untrusted files.
+D-26 Requirement traceability enforced by the build.
+D-27 No-defaults rule eased by user-owned templates.
+D-28 Explicit column mapping with confirmed suggestions.
+D-29 Negatives and duplicates removed, never silently.
+D-30 The Product Owner (the user) is the final human authority for business rules, requirement changes, waivers and release.
+D-31 Review independence is by construction (Section 20).
+D-32 The release gate is a deterministic evidence pipeline with a default-deny rule.
+D-33 Review depth is risk-tiered (21.2).
+D-34 Phases are vertical slices with business demos (Section 23).
+D-35 Anti-gaming protections apply to tests, oracle, tolerances and gate scripts (20.3).
+D-36 The challenger team is seven members with a coverage rule by attack code (19.9).
+D-37 Every role has an agent card and every task a task card with skill IDs (19.3, 21.4, Section 26).
+
+======================================================================
+SECTION 18. ACCEPTANCE CRITERIA
+======================================================================
+
+Flow: stages are enforced as the enumerated state machine, edits stale only dependent results, and exactly one forecast reaches the engine.
+Upload: a csv with different column names is mapped by the user and imported; negatives and duplicates are removed and the cleaning report lists every removed row and its effect before confirmation; gaps from removal have an explicit treatment.
+Forecast: with history, the app produces a backtested forecast and a comparison against the user's FCT; without history, the FCT is locked directly.
+Mode A: Pure requirement, Roster HC and Gross HC with bridge, per-rule effects and shrinkage attribution; at Certified fidelity Roster HC is certified over the full horizon and the validator reports no Hard violation.
+Mode B: achieved KPIs versus targets, shortfall, validator findings, and gap to Min HC when a matching Mode A result exists.
+Honesty: every result shows its fidelity label; Mode A shows the result at one fewer, the indifference zone, both bounds and the gap; a reached ceiling shows best-achievable KPIs and no Min HC claim.
+Roster rules: only allowed starts and lengths in generated rosters, uncovered intervals named, cost of the start list reported.
+Architecture: core purity, worker invariance, cancel-and-resume identity, container integrity, ingestion formats and CSP enforcement pass.
+Policy: literal scan, external-reference scan and requirement-coverage check pass; Constants Register and Engine Parameters panels list every constant and control parameter; no run starts with an unconfirmed example value.
+Validation: all nine cases and the holdout pack pass at pre-registered tolerances; all Section 14 tests pass.
+Program: Section 24.4 release criteria are met.
+Technical: one HTML file, offline, enforced no-network policy, no installation, project file round-trips exactly, performance targets met on Case 8 once set.
+
+======================================================================
+APPENDIX A. NUMERIC REGISTER OF THIS PRD
+======================================================================
+
+0 and 1: identity and indexing, and "one seat" as the indivisible unit. Class K.
+Start times such as 00:00, 06:00, 07:00, 07:30 (4.8): examples only. Class EX.
+2 in midpoint and halving steps and one half in the open-interval uniform: Class K, registered and tested.
+2^21 and 2^53 in the uniform construction and the exact-integer limit of Float64: Class K.
+Golden ratio in golden-section search: Class K.
+Seconds-per-hour, minutes-per-hour, hours-per-day, days-per-week and other unit conversions: Class K.
+Civil-calendar algorithm constants: Class K, oracle test. CRC32 polynomial, hash and mixer constants: Class K, test vectors.
+Run setup (mode, fidelity): Class P.
+Run controls per stage (replication counts per fidelity, precision, R_max, seed blocks, maximum blocks, confidence level, tolerances, iteration caps, calibration iterations, descent budget, bootstrap resamples, skew threshold, heuristic start count, dual-stabilization box, tailing-off window and tolerance, maximum-seat cap, p0 and f): Class P.
+Business-block simulation settings (warm-up, pre-roll, drain window, time quantum, MSER batch size): Class P.
+Architecture parameters (worker cap, progress interval, memory cap, row cap, maximum horizon days, file and array size limits, nesting depth, autosave interval, last-good snapshot count): Class P.
+Mapping and cleaning parameters (preview rows, maximum removed share, alias lists, conflicting-duplicate rule, gap treatment): Class P, no defaults.
+Roster rules (allowed starts and lengths, breaks, OFF days, maximum consecutive days, rest gap, weekly hours range, cycle length, minimum seats while open, HC ceiling, occupancy cap, guardrail parameters, productivity factor, given HC): Class P, no defaults.
+Forecasting controls (history window, exclusions, minimum cycles, minimum observations per profile cell, outlier threshold, decay weights, kappa override, smoothing width, IRLS tolerance and cap, HAC bandwidth, event lead and lag days, minimum event occurrences, origin spacing, lead buckets, training window type, block length and resamples, parsimony tolerance): Class P.
+Shrinkage rates (including per week type), contract hours, productive hours per FTE: Class P.
+Program parameters set by the Product Owner before Phase 0: listed in Appendix B. Class P, program-level, recorded in the governance register.
+Derived and result values (kappa, coefficients, dispersion, phi_min, W, FTE-equivalent, bounds, bridge steps, gaps, derived minimum R, LP duals, reduced costs, week weights, gross-to-rostered conversion, estimator outputs, removed counts and volume, gaps created, data hashes, program metrics): Class D or R, displayed.
+Wall-time and memory targets, upload and cleaning time target, main-thread responsiveness target, Case 8 parameters: Class TBD-Phase 0, owner-set.
+
+Every other number in the application is class U, P, D or R. Any number that appears without a class is a defect.
+
+======================================================================
+PART B. ENGINEERING PROGRAM (AGENT TEAM, CHALLENGER TEAM, SKILLS, TASK CARDS, GATE)
+======================================================================
+
+======================================================================
+SECTION 19. AGENT TEAM
+======================================================================
+
+19.1 Principles
+- The Product Owner (PO) is a human, the WFM planner, and is the only authority on business rules, requirement changes, waivers and release.
+- Every agent works from a card. An agent does only what its card allows and stops and escalates when a task needs something its card forbids.
+- Authors never review their own work. Reviewers never fix what they review. Approvers never author.
+- No agent's statement about a test result is evidence. Evidence is what the gate pipeline reproduces from a clean checkout.
+- Disagreement between agents is resolved by the authority matrix (19.12), then by the PO.
+
+19.2 Instance naming and context isolation
+- Instances are named ROLE-letter (for example COR-A, COR-B, CH-M-A). Each instance has its own context. It sees only the context pack assembled by the Orchestrator for the task (27.1).
+- The two-instance rule for Tier 1: the instance that writes the specification and fixtures plan and the instance that implements are different (for example COR-A specifies and COR-B implements).
+- An instance that authored an artifact in a task cannot be a verifier, reviewer, challenger or approver of that task.
+- Reviewers, challengers and auditors never receive the author's reasoning or self-assessment, only artifacts.
+
+19.3 Standard agent prompt skeleton (every card is filled into these ten fields)
+1 IDENTITY: role ID and name.
+2 MISSION: one sentence.
+3 AUTHORITY: what the agent may decide or change.
+4 PROHIBITIONS: what the agent must never do (including the independence rules).
+5 INPUTS ALLOWED / FORBIDDEN: the artifact classes it may and may not read.
+6 OUTPUTS: the artifacts and messages it must produce (formats in Section 27).
+7 PROCEDURE: the ordered steps for a task.
+8 STOP CONDITIONS: when to stop and escalate (missing input, conflicting instruction, out-of-card request, ambiguity in a requirement).
+9 QUALITY CHECK BEFORE SUBMITTING: a checklist the agent completes and attaches.
+10 SKILLS: skill IDs from Section 26 the agent is qualified in.
+General stop rule for every agent: if a requirement is ambiguous or two requirements conflict, do not guess. Raise a Finding of type SPEC-AMBIGUITY (27.3) to the BA and continue only on parts not affected.
+
+19.4 Human authority
+PO. Decides business rules, requirement changes, waivers (Medium and Low only, in writing), escalations, release and which models fill which roles. Attends slice demos with anonymized real data. Cannot waive a Critical or High defect.
+
+19.5 Governance roles
+ORC Program Orchestrator.
+ Mission: run the task graph and evidence ledger so work flows in the right order with the right reviewers.
+ Authority: sequencing, WIP limits, assigning instances to roles, building context packs, scheduling gate runs, reporting status and metrics.
+ Prohibited: approving content, editing code, tests, specs or requirements, changing a task's tier without BA and ARC agreement.
+ Inputs: task graph, evidence ledger, sign-off records. Forbidden: sealed packs (oracle, holdout).
+ Outputs: task state updates, context packs, status reports, metric reports.
+ Procedure: read the card, check dependencies are Closed, assign instances satisfying the independence rules (19.2), issue the Task Packet, track state, trigger the gate, record the outcome.
+ Skills: SK-PM, SK-REQ, SK-GOV.
+ARC Chief Architect.
+ Mission: keep the system coherent and buildable.
+ Authority: approve designs, module contracts and ADRs, set dependency rules, manage the technical debt register.
+ Prohibited: approving its own design (the challenger team and an auditor clear it), implementing Tier 1 code it designed.
+ Inputs: requirements, ADRs, module contracts, specifications. Forbidden: sealed packs.
+ Outputs: ADRs, module contracts, design review verdicts.
+ Procedure: check a design against layers (13.1), purity (13.2), the Number Policy and zero-dependency rules, interfaces and failure modes, then record a verdict with cited requirement IDs.
+ Skills: SK-ARCH, SK-STATE, SK-WRK, SK-DATA, SK-SEC, SK-PERF.
+BA Business Analyst.
+ Mission: make every requirement testable and traceable.
+ Authority: write task cards and acceptance criteria, assign requirement IDs and tiers (with ARC), manage change requests.
+ Prohibited: approving WFM formulas, changing a requirement without a PO-approved change request.
+ Outputs: task cards, acceptance criteria mapped to tests, traceability matrix, change requests with impact analysis.
+ Procedure: map each task to requirement IDs, write criteria in observable form (input, expected output, tolerance source), check each maps to a named test, flag untestable items.
+ Skills: SK-REQ, SK-DOC, SK-WFM (working level).
+WFM WFM Domain Authority.
+ Mission: make sure the product means what a WFM planner means.
+ Authority: approve KPI definitions, formula meaning, shrinkage and shift semantics, and WFM plausibility of results. Advises the PO on disputes.
+ Prohibited: approving code quality or implementation; approving its own definitions without ORA verification.
+ Outputs: KPI dictionary, WFM review verdicts with realistic counterexample scenarios, plausibility judgments.
+ Procedure: read the specification, restate the meaning in planner terms, check numerators and denominators, check results on case-pack plausibility and operational edge cases (24/7, midnight crossing, Ramadan hours, overnight minimums), record verdict.
+ Skills: SK-WFM, SK-QUE (working level), SK-ADV.
+DOC Technical Writer.
+ Mission: turn approved specifications into clear written specifications, the KPI dictionary, UI assumption text, the user guide and release notes.
+ Prohibited: changing a requirement or meaning. Anything it edits goes to BA and WFM for meaning review.
+ Skills: SK-DOC, SK-WFM (reading level).
+
+19.6 Engineering roles
+Common rules for COR, ALG, ROS, DAT, FE: write module specifications (formulas, edge cases, error codes, complexity) before code; commit failing tests first when assigned; never edit protected paths (20.3); never read sealed packs; never approve, merge or close their own task; report only through the Evidence Package (27.2); stop on ambiguity.
+COR Core and Platform Developer: store, flow state machine, fingerprints, hash, container, persistence, workers, build integration. Skills: SK-JSM, SK-STATE, SK-DATA, SK-ZIP, SK-IDB, SK-WRK, SK-BLD.
+ALG Algorithm and Simulation Developer: keyed generator, statistics, Erlang, DES, Layer 1 solver, decision procedure. Skills: SK-JSM, SK-QUE, SK-DES, SK-RNG, SK-STAT, SK-NUM, SK-PERF.
+ROS Roster and Optimization Developer: LP and column generation, heuristics, break flow, HC search, constraint impact. Skills: SK-JSM, SK-LP, SK-OR, SK-NUM, SK-WFM, SK-PERF.
+DAT Data and Forecast Developer: CSV, mapping, cleaning, calendar, forecasting, comparison. Skills: SK-JSM, SK-CSV, SK-DATA, SK-FC, SK-STAT, SK-NUM.
+FE Frontend and UX Developer: UI screens, tables, charts, accessibility, planner workflow. Skills: SK-UI, SK-A11Y, SK-VIS, SK-JSM, SK-WFM (reading level).
+Procedure for any developer: read the Task Packet, restate acceptance criteria as tests, write the specification (spec owner) or implement against it (implementer), run the quality checklist, attach the Evidence Package.
+
+19.7 Verification roles
+ORA Oracle Engineer.
+ Mission: provide the independent reference.
+ Authority: author oracle values, the case pack and the sealed holdout pack.
+ Prohibited: reading engine source, modifying the engine, sharing the holdout pack with developers.
+ Inputs: written mathematical specifications only. Outputs: reference implementation in a different language (outside the shipped file), expected-value data files, case pack, holdout pack (sealed), a derivation note per value.
+ Procedure: implement from the specification only, derive each expected value two ways where possible (closed form and independent computation), record tolerance justifications, hand the data to TST, flag specification ambiguity to the BA.
+ Skills: SK-ORCL, SK-QUE, SK-STAT, SK-NUM, SK-LP, SK-DES.
+VAL Validator Developer.
+ Mission: independently recompute rule compliance and KPIs.
+ Prohibited: reading the roster generator, LP or DES source.
+ Inputs: rule text (4.8) and the KPI definitions (7.3) only; event record format. Outputs: schedule validator and KPI recalculation modules, planted-violation test set.
+ Skills: SK-JSM, SK-OR (reading), SK-WFM, SK-TEST, SK-AUD.
+TST Test Engineer.
+ Mission: build the verification machinery.
+ Authority: write tests, fixtures other than oracle data, property-based and mutation tests, determinism and performance harnesses.
+ Prohibited: changing oracle data or tolerances, implementing features.
+ Outputs: failing-first test commits, integration and property tests, mutation reports, reproducibility reports.
+ Skills: SK-TEST, SK-PERF, SK-JSM, SK-BLD.
+SEC Security and Build Engineer.
+ Mission: make the build deterministic and safe.
+ Outputs: build pipeline and scans, CSP generation, container hardening, fuzz sets, release packaging with hashes.
+ Prohibited: implementing features, approving its own pipeline changes (AUD-P reviews them).
+ Skills: SK-SEC, SK-BLD, SK-ZIP, SK-JSM.
+
+19.8 Audit roles
+AUD-C Code and Algorithm Auditor. Reviews source, algorithms and numerical behavior against the specification. Skills: SK-AUD, SK-NUM, SK-STAT, SK-QUE, SK-JSM.
+AUD-P Platform, Security and Data Auditor. Reviews persistence, workers, build, container, ingestion, security, performance and data integrity. Skills: SK-AUD, SK-SEC, SK-PERF, SK-DATA, SK-CSV.
+Rules for both: rerun the tests from a clean checkout; list every artifact inspected and every command run; never accept an author's summary; classify findings by severity (21.6); reject by citing the criterion. Procedure: read specification, read diff, run suite, run oracle comparison, inspect for hidden assumptions, silent transformation, label integrity and protected-path changes, write the audit report.
+
+19.9 Challenger team
+Mission of the team: try to disprove each solution, specification and test suite before it is accepted. The team never approves anything. It produces counterexamples and attack logs.
+
+19.9.1 Members
+CHL Challenge Lead.
+ Mission: coordinate coverage.
+ Authority: assign challengers by attack taxonomy for each task, merge attack logs, decide when coverage is complete, report coverage to the Gate.
+ Prohibited: approving, editing artifacts, suppressing a finding.
+ Procedure: read the task card, select attack codes from the taxonomy (19.9.2), assign one challenger per domain code, require the blind round, run the merge round, verify every finding has a reproducible counterexample or is marked unverified, deliver the merged Attack Log.
+ Skills: SK-ADV, SK-GOV, SK-PM.
+CH-M Mathematical Challenger. Attacks mathematics: queueing and statistics assumptions, numerical stability, bias, multiple testing, optimization claims. Looks for counterexamples to every stated bound, monotonicity or minimality claim and proposes alternative algorithms. Attack codes: A01, A02, A07, A12. Skills: SK-QUE, SK-STAT, SK-NUM, SK-LP, SK-ADV.
+CH-W WFM Operations Challenger. Attacks meaning and plausibility: KPI definitions, labels, bridge semantics, planner workflows. Builds realistic scenarios (24/7 operation, cross-midnight shifts, hour-reduction weeks, low-volume nights, queues with different SLAs) and checks the results make operational sense. Attack codes: A05, A08, A12. Skills: SK-WFM, SK-ADV, SK-QUE (working level).
+CH-S Software and Security Challenger. Attacks state, concurrency, determinism, performance and security: illegal transition sequences, cancel and resume, worker invariance, memory limits, injection, hostile files. Attack codes: A04, A06, A10, A11. Skills: SK-SEC, SK-PERF, SK-WRK, SK-STATE, SK-ADV.
+CH-D Data Challenger. Generates hostile and awkward inputs: encodings, delimiters, ambiguous dates, huge files, mapping traps, duplicates that collide after removal, negatives that create gaps. Attack codes: A01, A03. Skills: SK-CSV, SK-DATA, SK-ADV.
+CH-R Roster and Constraint Challenger. Tries to find a roster cheaper than a claimed minimum on small cases by brute force, tries to get invalid rosters past the validator, and probes rule interactions and infeasibility. Attack codes: A01, A05. Skills: SK-OR, SK-LP, SK-WFM, SK-ADV.
+CH-X Process and Gaming Red Team. Attacks the process: tries to pass the gate with weak tests, hunts ambiguity and hidden assumptions in specifications, checks that labels like "certified" are never misused, inspects diffs of protected paths, checks that other reviewers' sign-offs match the artifact hashes. Attack codes: A09, A12. Skills: SK-GOV, SK-ADV, SK-TEST, SK-REQ.
+
+19.9.2 Attack taxonomy (referenced by task cards)
+A01 Boundary and degenerate values (zero, one, maximum, empty, single interval).
+A02 Numerical limits (overflow, cancellation, tolerances, special-function ranges).
+A03 Adversarial input files (encodings, delimiters, malformed, huge, ambiguous).
+A04 State-machine abuse and ordering (illegal sequences, stale results presented as current).
+A05 Rule interaction and infeasibility (rules that combine in unexpected ways).
+A06 Determinism and concurrency (worker count, cancel and resume, ordering).
+A07 Statistical validity (bias, multiple testing, leakage, optional stopping).
+A08 WFM counterexamples (implausible or misleading results, KPI meaning).
+A09 Gaming and label integrity (weak tests, hard-coded values, misleading labels, tolerance changes).
+A10 Performance extremes (largest horizon, memory growth, stalled solver).
+A11 Security and injection (XSS, prototype pollution, hostile project files).
+A12 Specification ambiguity and hidden assumptions.
+
+19.9.3 Operating model
+1 Pre-mortem (design stage): each assigned challenger independently, without seeing the others, writes the top failure modes for the specification and the tests that would catch them. CHL merges. The developer must add tests for accepted failure modes.
+2 Test-adequacy challenge (before implementation): challengers review the committed failing tests for missing cases and weak assertions. TST adds mutants to confirm the tests fail on planted defects.
+3 Attack (after implementation): each challenger runs attacks in its codes against the implementation and produces an Attack Log (27.4): the attack, input, expected, observed, result.
+4 Regression attack: after fixes, the same attacks are rerun and new variants tried.
+5 Release sweep (Phase 10): the whole team attacks the integrated product on the case pack and on new adversarial cases.
+Rules:
+- Blind round first, merge round second, so challengers do not anchor on each other.
+- A finding is valid only with a reproducible counterexample (input file, command, expected versus actual) or a formal argument that an auditor verifies. Otherwise it is marked unverified and tracked but does not block.
+- AUD and the owner triage each finding as valid, invalid or duplicate in the time box set by the PO. The false-positive rate of each challenger is tracked.
+- "No finding" is accepted only with a complete Attack Log covering every assigned code. Challengers must try to break the work, not review its presentation.
+- Challengers use varied strategies (different prompts, seeds, models where available) to reduce shared blind spots.
+- A challenger who authored or implemented any part of a task is excluded from it.
+Coverage rule: the task card lists attack codes. For Tier 1 every listed code must be covered by at least one challenger, CH-S and CH-X are always assigned, and the CHL certifies coverage. The minimum number of independent challengers for Tier 1 is a PO parameter (Appendix B).
+
+19.10 Gate roles
+GATE Release Gate. Part one is the gate pipeline, a deterministic script that checks the evidence list (22.1) from a clean checkout and returns PASS or REJECT with the unmet item. Part two is the Gate Agent for judgment items. Default is REJECT until each item has evidence. Cites the unmet item for every rejection. Cannot be overridden by any agent. Skills: SK-GOV, SK-REQ, SK-TEST.
+
+19.11 Qualification
+Before first use and at each phase boundary:
+- Reviewing roles (WFM, AUD-C, AUD-P, every challenger, VAL, ORA, Gate Agent) pass a seeded-defect exercise: a prepared package with planted defects in their domain (math error, rule violation, silent transformation, hidden assumption, misleading label, determinism break). Detection and false-positive rates are recorded. A role under the PO's threshold may not approve or clear anything until fixed.
+- Developer roles pass a reference exercise: implement a specified function set to oracle fixtures without protected-path edits.
+- Orchestrator passes a scheduling exercise with planted dependency and independence traps.
+- Each skill ID in Section 26 has its proof exercise, and a role holds a skill only after passing it.
+
+19.12 Authority matrix (D design, I implement, V verify, R review, C challenge, A approve, X may not)
+Requirement and acceptance criteria: BA D; WFM R; ARC R; CH-X C; PO A.
+Requirement change: BA D; ARC, WFM R; CH-X, CH-W C; PO A.
+ADR: ARC D; challenger team C; AUD-C and AUD-P R; ARC A after clearance.
+WFM formula or KPI definition: WFM, DOC D; ORA V; CH-W and CH-M C; PO A on dispute.
+Module specification (Tier 1): developer D; ARC, WFM (if WFM meaning) R; challenger team C; ARC A.
+Oracle values, case pack: ORA D; WFM R; PO A; developers X.
+Code: developer I; TST V; AUD R; challenger team C; GATE A.
+Validator and KPI recalculation: VAL D, I; ORA V; AUD-C R; GATE A; roster developers X.
+Test or tolerance change: TST proposes; BA, ARC, WFM approve; logged; developers X.
+Defect severity: AUD proposes; WFM confirms WFM impact; PO final.
+Waiver (Medium, Low): PO A. Critical, High: never.
+Phase exit: ORC V; GATE A; PO A. Release: GATE A, PO A, SEC V.
+
+======================================================================
+SECTION 20. INDEPENDENCE AND ANTI-GAMING
+======================================================================
+
+20.1 Independence by construction: author, reviewer, challenger and approver are different instances with separate contexts; reviewers and challengers receive artifacts only; AUD and the challenger team run on a different model from the task's implementers where the PO has more than one available, otherwise with separate contexts, blind prompts and mandatory qualification (19.11); sign-offs are bound to artifact hashes and any change invalidates them.
+20.2 Blind implementation: ORA builds the oracle from specifications in a different language without seeing the engine; VAL builds the validator and KPI recalculation from rule text without seeing the generator, LP or DES; developers never see the sealed holdout pack, oracle source or validator source. An engine-oracle disagreement is a finding decided by ARC and WFM, and the decision is recorded.
+20.3 Anti-gaming controls: protected paths (oracle, case pack, holdout pack, tolerances file, gate scripts, CI configuration) are read-only for developers; no deletion or weakening of tests, no loosened tolerance, no hard-coded expected values, no special-casing of test inputs; the gate diffs tests and tolerances against the approved baseline; fresh-checkout execution is the only evidence; Tier 1 results run twice and hashes must match; mutation checks for Tier 1 modules must kill planted mutants above the PO-set rate; the holdout pack must pass unseen.
+20.4 Data protection: agent workspaces use synthetic or anonymized data only. Real operational data stays with the PO and is used only in slice demos run by the PO.
+
+======================================================================
+SECTION 21. TASK GOVERNANCE
+======================================================================
+
+21.1 Fundamental rule
+A task that depends on another cannot start until that task is Closed. Independent tasks run in parallel when ARC approves their interfaces. ORC limits work in progress.
+
+21.2 Risk tiers and team composition (tier set by BA and ARC at intake)
+Tier 1 Critical: mathematics, DES, solvers, certification, roster generation, validator, cleaning, flow and fingerprints, hashing, container, determinism, and anything changing a staffing number or label. Team: spec owner and implementer (two instances), TST, ORA (where oracle applies), ARC design review, WFM (if WFM meaning), AUD-C and AUD-P as applicable, challengers per the coverage rule with CHL, Gate.
+Tier 2 Core: ingestion screens, persistence, workers, exports, reporting numbers, performance, build scripts. Team: one owner instance, TST, one auditor, challengers on a sample chosen by ORC, Gate.
+Tier 3 Minor: layout, navigation, wording not changing meaning, documentation. Team: owner, peer reviewer from FE or DOC, automated gate checks, BA or WFM only if KPI wording is touched.
+The tier cannot be lowered without ARC and BA agreement.
+
+21.3 Task states and lifecycle
+States: Draft, Specified, Designed, TestsWritten, Implemented, Verified, Reviewed, Gated, Closed, plus Rejected and Blocked.
+Transitions (who triggers): Draft to Specified (spec owner, BA confirms criteria); Specified to Designed (ARC, plus challenger pre-mortem for Tier 1); Designed to TestsWritten (TST and ORA data, failing run captured); TestsWritten to Implemented (implementer, quality checklist attached); Implemented to Verified (TST, VAL or ORA comparisons, determinism double-run); Verified to Reviewed (AUD, challenger Attack Log, WFM or BA sign-off where required); Reviewed to Gated (pipeline and Gate Agent); Gated to Closed (ORC records evidence, regression tests added, metrics updated). A rejection returns the task to the state where the defect originated (Specified, TestsWritten or Implemented) and invalidates later sign-offs. Blocked is set by ORC with a reason when a dependency or decision is missing.
+
+21.4 Task card template (every task in Section 23 uses these fields)
+ID, title, tier, Refs (Part A requirement IDs), Needs (task IDs), Spec (specification owner), Impl (implementer), Verify, Review, Challenge (with attack codes), Sign-offs, Skills (IDs), Inputs, Outputs, Acceptance (named tests and criteria), Attack focus, Risks.
+For Tier 2 and 3, Spec and Impl are the same instance.
+
+21.5 Rejection, rework and escalation
+A rejection records the finding, severity, requirement ID and cited criterion, and returns the task. Affected tests and sign-offs are re-run. After the PO-set number of rejections on one task, ARC performs a root-cause review (specification, design or assignment). After a further PO-set number, the PO decides to change design, reassign, change the requirement through change control, or stop.
+
+21.6 Severity
+Critical: wrong staffing result, mathematical error, invalid roster, data loss or silent data change, security breach, nondeterminism, misleading label. High: major feature failure, incorrect KPI, violated Hard rule, broken flow gate. Medium: limited functional defect, incomplete validation. Low: usability, documentation. Critical and High block approval and cannot be waived. Medium and Low only by the PO in writing.
+
+======================================================================
+SECTION 22. THE GATE
+======================================================================
+
+22.1 Required evidence (any missing item is a REJECT citing the item)
+G1 Task card, specification and acceptance criteria with hashes, mapped to requirement IDs.
+G2 Approved specification and design sign-offs for the tier, bound to hashes.
+G3 Failing-test evidence from before implementation, and the same tests passing from a clean checkout run by the pipeline.
+G4 Every acceptance criterion mapped to a named test, and the traceability check passing.
+G5 Oracle comparison within pre-registered tolerances (where applicable) and the holdout pack passing.
+G6 No unapproved change to tests, tolerances, oracle or gate scripts.
+G7 Static scans passing (Number Policy, external references, forbidden APIs in the engine core, innerHTML on data, circular dependencies).
+G8 Determinism double-run identical, worker-count invariance where applicable.
+G9 Mutation check at or above the PO-set kill rate (Tier 1).
+G10 Audit report with artifacts and commands listed, and a complete Attack Log with coverage certified by the CHL (Tier 1 and sampled Tier 2), with all findings resolved or dispositioned by severity.
+G11 WFM sign-off where WFM meaning is touched, BA sign-off for acceptance criteria.
+G12 No open Critical or High defect, PO waivers recorded for Medium and Low.
+G13 Performance within the approved budget where one exists.
+G14 Documentation and changelog updated, regression tests added.
+G15 All sign-offs bound to the current artifact hashes.
+
+22.2 Behavior
+The pipeline checks G1 to G9 and G12 to G15 mechanically. The Gate Agent handles G10 and G11. Default is REJECT. It rejects only by citing the unmet item, must not invent criteria, and must approve when all items are met. Decisions, evidence lists and hashes are stored and visible to the PO. Rejection reasons are tallied to detect both rubber-stamping and obstruction.
+
+======================================================================
+SECTION 23. PHASES AND TASK CARDS
+======================================================================
+
+23.0 General rules
+Each phase ends with exit criteria, Gate approval and a retrospective. Phases 3 to 8 end with a PO demo on anonymized real data, and decisions and change requests are logged. Notation: for Tier 1, "X-A/X-B" means specification by instance A and implementation by instance B. V = verifiers. R = reviewers. C = challengers with attack codes. Sg = sign-offs. T-numbers refer to the Section 14.2 tests.
+
+PHASE 0. Program setup, requirement freeze and technical proof
+P0-T01 [T1] Freeze Part A under change control; assign requirement IDs and criteria. Refs: all. Needs: none.
+ Spec/Impl: BA. R: WFM, ARC, AUD-P. C: CH-X, CH-W (A12). Sg: PO. Skills: SK-REQ, SK-WFM.
+ Out: requirement register with IDs, acceptance criteria. Accept: every numbered item has an ID and a criterion or "not testable" reason. Attack: ambiguous or conflicting requirements.
+P0-T02 [T2] Traceability tool and build check. Refs: 14.1, 24.2. Needs: P0-T01.
+ Owner: COR. V: TST. R: AUD-P. C: CH-X (A09). Skills: SK-JSM, SK-REQ, SK-BLD.
+ Out: matrix generator, build failure on uncovered requirement. Accept: planted uncovered requirement fails the build.
+P0-T03 [T1] KPI dictionary, module specification template, first specifications (DES event model, agent state, keyed generator, statistics). Refs: 7.3, 7.4, 6.3. Needs: P0-T01.
+ Spec: WFM and ALG-A; DOC writes. V: ORA. R: ARC, AUD-C. C: CH-M, CH-W, CH-X (A02, A08, A12). Sg: WFM, PO. Skills: SK-WFM, SK-QUE, SK-DES, SK-DOC.
+ Out: KPI dictionary, specifications. Accept: ORA can implement each formula from the text alone (ambiguity count zero). Attack: denominators, short-abandon handling, occupancy definition.
+P0-T04 [T2] Repository, protected paths, clean-checkout gate pipeline, hash-bound sign-offs, evidence store. Refs: 20, 22. Needs: none.
+ Owner: SEC. V: TST. R: AUD-P. C: CH-X, CH-S (A09, A11). Skills: SK-BLD, SK-GOV, SK-SEC.
+ Accept: a planted weakened test and a planted tolerance change are rejected by the pipeline.
+P0-T05 [T1] Role qualification exercises and thresholds. Refs: 19.11. Needs: P0-T04.
+ Owner: ORC with CHL; planted-defect packages written by ORA and CH-X. R: AUD-P. Sg: PO sets thresholds and model assignments. Skills: SK-GOV, SK-ADV, SK-PM.
+ Accept: every reviewing role has a recorded detection rate at or above threshold, or is replaced.
+P0-T06 [T1] Oracle reference, case pack (Cases 1 to 9), sealed holdout pack. Refs: 14.1, 14.3. Needs: P0-T03.
+ Spec/Impl: ORA-A/ORA-B. V: WFM (plausibility). R: AUD-C. C: CH-M, CH-R, CH-D (A01, A02, A12). Sg: PO. Skills: SK-ORCL, SK-QUE, SK-STAT, SK-LP, SK-DES.
+ Accept: each expected value has two derivations or a stated reason; holdout hash sealed.
+P0-T07 [T2] Technical spikes with pre-set pass criteria and fallbacks (Blob workers under CSP, storage and File System Access, DES throughput, idle-selection complexity, LP size and column-generation stalling, JIT canary, generator battery, ZIP and XLSX writer, cleaning speed). Refs: 13, 16. Needs: P0-T04.
+ Owners: COR (platform spikes), ALG (DES, generator), ROS (LP). V: TST. R: AUD-P, AUD-C. C: CH-S (A10, A06). Sg: ARC, PO. Skills: SK-WRK, SK-PERF, SK-LP, SK-DES, SK-ZIP.
+ Out: spike reports with pass or fail against pre-set criteria; ADR for each fallback.
+P0-T08 [T2] Performance benchmark definition and anonymized data. Refs: 14.3, 15. Needs: P0-T06.
+ Owner: TST with ORA data; PO supplies data. R: AUD-P. Skills: SK-PERF, SK-TEST.
+P0-T09 [T1] ADRs and module contracts (layers, messages, purity). Refs: 13.1, 13.2. Needs: P0-T07.
+ Spec: ARC-A; peer check by ARC-B. R: AUD-C, AUD-P. C: CH-S, CH-X (A04, A06, A12). Sg: PO informed. Skills: SK-ARCH, SK-STATE, SK-WRK.
+Exit: PO approves the frozen requirements; the gate pipeline passes a trial task and rejects a planted-defect task; qualification thresholds met; spikes decided; case pack and holdout sealed; ADRs approved.
+
+PHASE 1. Foundation
+P1-T01 [T2] Application shell and navigation. Refs: 13.12. Needs: P0-T09.
+ Owner: FE. V: TST. R: AUD-P. Skills: SK-UI, SK-A11Y, SK-JSM. Accept: loads offline, keyboard navigation.
+P1-T02 [T1] Store, immutable result records, flow state machine, fingerprints and staleness. Refs: 3.3 to 3.5, 13.7. Needs: P0-T09.
+ Spec/Impl: COR-A/COR-B. V: TST. R: AUD-C, ARC. C: CH-S, CH-X, CH-W (A04, A06, A09). Sg: BA, WFM. Skills: SK-STATE, SK-DATA, SK-JSM.
+ Out: transition table, dependency map. Accept: T2, T3, T4, T5. Attack: illegal transition sequences, stale result shown as current, fingerprint collisions by key reordering.
+P1-T03 [T1] Canonical serialization and 128-bit hash with vectors. Refs: 13.7. Needs: P0-T09.
+ Spec/Impl: COR-A/COR-B. V: TST, ORA vectors. R: AUD-C. C: CH-M, CH-X (A01, A02). Skills: SK-DATA, SK-ZIP, SK-NUM. Accept: T12.
+P1-T04 [T1] Parameter registry, constants register, Engine Parameters panel, example-confirmation logic. Refs: 2.1, 4.10. Needs: P1-T02.
+ Spec/Impl: COR-A/COR-B. R: AUD-P, WFM. C: CH-X, CH-W (A09, A08). Skills: SK-JSM, SK-DATA, SK-REQ. Accept: no run starts with an unconfirmed example value; every parameter has unit, range, class.
+P1-T05 [T2] Build script, deterministic output, scans, CSP generation, About panel. Refs: 13.10, 13.13. Needs: P0-T04.
+ Owner: SEC. V: TST. R: AUD-P. C: CH-S (A11). Skills: SK-BLD, SK-SEC. Accept: T15, T20.
+P1-T06 [T1] Project container, integrity checks, migration, atomic autosave and recovery. Refs: 13.8, 13.9. Needs: P1-T03.
+ Spec/Impl: COR-A/COR-B. V: TST. R: AUD-P. C: CH-S, CH-D (A03, A11, A06). Skills: SK-ZIP, SK-IDB, SK-SEC. Accept: T13, T17. Attack: truncated, flipped, oversized, prototype keys, interrupted write.
+P1-T07 [T2] Error model, diagnostics log, Environment panel. Refs: 13.11, 13.16. Needs: P1-T02.
+ Owner: COR. R: AUD-P. C: CH-S (A02, A10). Skills: SK-JSM, SK-SEC. Accept: T16.
+P1-T08 [T1] CSV parser, format selection, column mapping screen, templates. Refs: 4.1, 13.4. Needs: P1-T02.
+ Spec/Impl: DAT-A/DAT-B (screen by FE). V: TST. R: AUD-P. C: CH-D, CH-S (A03, A01, A12). Sg: BA, WFM. Skills: SK-CSV, SK-DATA, SK-UI. Accept: T10, T57, T58, T59.
+P1-T09 [T1] Cleaning: negatives, duplicates, gaps, safety limit, cleaning report, original preserved. Refs: 4.2 to 4.4. Needs: P1-T08.
+ Spec/Impl: DAT-A/DAT-B. V: TST, ORA (Case 9). R: AUD-P, WFM. C: CH-D, CH-W, CH-X (A01, A03, A08, A09). Sg: WFM, PO. Skills: SK-CSV, SK-DATA, SK-WFM. Accept: T60 to T66, Case 9.
+P1-T10 [T3] String table and accessibility baseline. Refs: 13.12. Needs: P1-T01. Owner: FE. R: peer.
+Exit: flow, container, ingestion and cleaning tests pass, Case 9 passes, the build gives one offline HTML file.
+
+PHASE 2. Math core and oracle verification
+P2-T01 [T1] Units, time and civil-calendar conversion. Refs: 13.3. Needs: P1-T03.
+ Spec/Impl: ALG-A/ALG-B. V: ORA, TST. R: AUD-C. C: CH-M (A01, A02). Skills: SK-NUM, SK-JSM. Accept: T11.
+P2-T02 [T1] Keyed generator, 53-bit uniform, statistical battery. Refs: 6.3, 7.4. Needs: P1-T03.
+ Spec/Impl: ALG-A/ALG-B. V: TST, ORA. R: AUD-C. C: CH-M, CH-S, CH-X (A06, A07, A02). Skills: SK-RNG, SK-STAT, SK-NUM. Accept: T25. Attack: key collisions, order dependence, endpoints of the uniform.
+P2-T03 [T1] Statistics: normal and t quantiles, incomplete beta, exact binomial bound, bootstrap-t, distribution sampling, exact Poisson counts. Refs: 11.2, 6.1. Needs: P2-T02.
+ Spec/Impl: ALG-A/ALG-B. V: ORA, TST. R: AUD-C. C: CH-M (A02, A07). Skills: SK-STAT, SK-NUM, SK-RNG. Accept: T22, T46.
+P2-T04 [T1] Erlang B and C; Erlang A withheld until verified. Refs: 7.2. Needs: P2-T03.
+ Spec/Impl: ALG-A/ALG-B. V: ORA. R: AUD-C, WFM. C: CH-M, CH-W (A02, A08). Skills: SK-QUE, SK-NUM. Accept: T21 (analytic part). Attack: very large A and N, N close to A.
+P2-T05 [T1] KPI engine and valid bounds (phi_min, FTE-equivalent). Refs: 7.1, 7.3. Needs: P0-T03.
+ Spec/Impl: ALG-A/ALG-B. V: ORA. R: AUD-C, WFM. C: CH-M, CH-W (A01, A08, A12). Sg: WFM. Skills: SK-WFM, SK-STAT. Accept: T30.
+P2-T06 [T2] Worker-run self-test and engine-hash stamping. Refs: 13.14. Needs: P1-T05. Owner: COR. R: AUD-P. C: CH-S (A04, A06). Accept: T18.
+P2-T07 [T1] Oracle comparisons and closed-form checks. Refs: 14.1. Needs: P2-T04.
+ Owner: TST. V: ORA. R: AUD-C. C: CH-M, CH-X (A07, A09). Accept: T21, T22.
+Exit: all mathematical tests pass against the oracle.
+
+PHASE 3. Slice 1: walking skeleton (voice, Layer 1)
+P3-T01 [T1] Voice DES core, event calendar, agent state, abandonment, G1. Refs: 7.4, 7.5, 6.1. Needs: P2-T02, P2-T05.
+ Spec/Impl: ALG-A/ALG-B. V: TST, ORA. R: AUD-C, WFM. C: CH-M, CH-S, CH-W, CH-X (A01, A02, A06, A08, A10). Skills: SK-DES, SK-QUE, SK-RNG. Accept: T21, T23, T24, T26. Attack: ties at equal timestamps, zero seats, abandonment at service start, shift end while on contact.
+P3-T02 [T2] Worker layer, replication cache, cancel and resume, progress. Refs: 13.5. Needs: P2-T06.
+ Owner: COR. V: TST. R: AUD-P. C: CH-S (A06, A10). Skills: SK-WRK, SK-PERF. Accept: T7, T8.
+P3-T03 [T1] Layer 1 solver: gain curves, concavity test, nested path, calibration, descent. Refs: 7.7. Needs: P3-T01, P2-T04.
+ Spec/Impl: ALG-A/ALG-B. V: ORA, TST. R: AUD-C, WFM. C: CH-M, CH-W (A01, A02, A07, A12). Sg: WFM. Skills: SK-QUE, SK-OR, SK-STAT. Accept: T29, T31, T32, Case 2.
+P3-T04 [T1] Decision procedure: tri-state, seed blocks, fixed-sequence certification. Refs: 11. Needs: P3-T01, P2-T03.
+ Spec/Impl: ALG-A/ALG-B. V: ORA, TST. R: AUD-C. C: CH-M, CH-X (A07, A09). Skills: SK-STAT. Accept: T45, T46, T47. Attack: optional stopping, reuse of seeds, direction of bounds.
+P3-T05 [T2] Minimal UI for S1 to S6 with fidelity selection. Refs: 3, 12. Needs: P3-T03, P1-T09.
+ Owner: FE. R: AUD-P, WFM. C: CH-W (A04, A08). Skills: SK-UI, SK-WFM.
+Exit: Cases 1 and 2 pass; determinism and worker-invariance pass; PO demo.
+
+PHASE 4. Slice 2: roster and the first Min HC (voice pool)
+P4-T01 [T2] Roster rules configuration screens. Refs: 4.8. Needs: P1-T04. Owner: FE. R: WFM. C: CH-W (A12, A08). Skills: SK-UI, SK-WFM.
+P4-T02 [T1] Column generation, pricing DP, revised simplex, scale controls. Refs: 8.2, 8.3. Needs: P3-T03, P4-T01.
+ Spec/Impl: ROS-A/ROS-B. V: ORA, TST. R: AUD-C. C: CH-M, CH-R, CH-S (A01, A02, A10, A05). Skills: SK-LP, SK-OR, SK-NUM, SK-PERF. Accept: T35, T36, Case 4. Attack: degenerate LP, cycling, stalled column generation, tiny cycles.
+P4-T03 [T1] Roster heuristic, break flow, two-phase loop. Refs: 8.4, 8.5. Needs: P4-T02.
+ Spec/Impl: ROS-A/ROS-B. V: TST. R: AUD-C, WFM. C: CH-R, CH-W (A05, A01, A08). Skills: SK-OR, SK-WFM. Accept: T34, T38.
+P4-T04 [T1] Independent validator and KPI recalculation. Refs: 8.6. Needs: P4-T01.
+ Spec/Impl: VAL-A/VAL-B (no access to ROS or ALG source). V: ORA, TST. R: AUD-C. C: CH-R, CH-X (A05, A09). Sg: WFM. Skills: SK-WFM, SK-TEST, SK-AUD. Accept: T33, T66 (validator part). Attack: violations hidden by cycle wrap, midnight crossing, mid-interval starts.
+P4-T05 [T1] HC search, certification over HC, rigorous bound, ceiling handling. Refs: 8.1, 8.3, 8.4, 8.9, 11. Needs: P4-T03, P3-T04.
+ Spec/Impl: ROS-A/ROS-B. V: ORA, TST. R: AUD-C, WFM. C: CH-M, CH-R, CH-X (A07, A05, A09). Skills: SK-STAT, SK-LP, SK-OR. Accept: T36, T40, Case 7. Attack: cheaper roster by brute force on small cases.
+P4-T06 [T1] Bridge steps, constraint impact, start-list diagnostics. Refs: 8.7 to 8.9. Needs: P4-T05.
+ Spec/Impl: ROS-A/ROS-B. V: ORA. R: AUD-C, WFM. C: CH-R, CH-W (A05, A08). Sg: WFM. Skills: SK-LP, SK-WFM. Accept: T37, T38, T39.
+P4-T07 [T1] Layer 3 shrinkage and gross HC. Refs: 9. Needs: P4-T05.
+ Spec/Impl: ROS-A/ROS-B. V: ORA. R: WFM, AUD-C. C: CH-W, CH-M (A08, A01). Sg: WFM. Skills: SK-WFM. Accept: shrinkage not double counted; Layer 3 recomputes instantly.
+P4-T08 [T2] Mode A results screens (S6 to S8) and proof panel. Refs: 12.1 to 12.4. Needs: P4-T07. Owner: FE. R: AUD-P, WFM. C: CH-W, CH-X (A08, A09). Skills: SK-UI, SK-VIS, SK-WFM. Attack: labels (Estimated, non-certified, Certified) shown wrongly.
+Exit: Cases 4 and 7 pass; validator planted-violation tests pass; PO accepts the bridge semantics and the first Min HC on anonymized data.
+
+PHASE 5. Slice 3: Mode B and results
+P5-T01 [T1] Fixed-HC build and evaluation. Refs: 10. Needs: P4-T05.
+ Spec/Impl: ROS-A/ROS-B. V: ORA, TST. R: AUD-C, WFM. C: CH-R, CH-M (A05, A07). Accept: T41, T42, T44, Case 5.
+P5-T02 [T1] Uploaded roster mapping, cleaning, validator findings. Refs: 4.3, 10.1. Needs: P4-T04, P1-T09.
+ Spec/Impl: DAT-A/DAT-B. R: AUD-P. C: CH-D, CH-R (A03, A05). Accept: T43, T66.
+P5-T03 [T2] Assumption exposure, guardrail cost, information views. Refs: 12.5 to 12.7. Needs: P4-T08. Owner: ALG with FE. R: WFM, AUD-C. C: CH-W (A08). Skills: SK-WFM, SK-VIS.
+P5-T04 [T2] Exports (csv, json, xlsx writer) and replay drill-down. Refs: 13.9, 12.9. Needs: P4-T08. Owner: COR. R: AUD-P. C: CH-D, CH-S (A03, A11). Skills: SK-ZIP, SK-DATA. Accept: T56.
+Exit: Case 5, export round trip, PO demo.
+
+PHASE 6. Slice 4: deferrable pools
+P6-T01 [T1] Deferrable DES, N_min, business calendar, parking and resume. Refs: 7.6, 7.2. Needs: P3-T01.
+ Spec/Impl: ALG-A/ALG-B. V: ORA, TST. R: AUD-C, WFM. C: CH-M, CH-W, CH-S (A01, A08, A10). Skills: SK-DES, SK-WFM. Accept: T23, Case 3.
+P6-T02 [T1] Dispatch rules, assignment fairness, drain window, ledger replay. Refs: 7.6. Needs: P6-T01.
+ Spec/Impl: ALG-A/ALG-B. R: AUD-C, WFM. C: CH-W, CH-M (A08, A02). Sg: WFM.
+P6-T03 [T1] Layers 1 and 2 for deferrable pools and Mode B. Refs: 7, 8, 10. Needs: P6-T02, P5-T01.
+ Spec/Impl: ROS-A/ROS-B with ALG. R: AUD-C. C: CH-R, CH-M (A05, A07).
+Exit: Case 3, Little identity and conservation tests, PO demo.
+
+PHASE 7. Slice 5: chat and multi-queue pools
+P7-T01 [T1] Variable-rate chat concurrency and fill policy. Refs: 7.5. Needs: P3-T01.
+ Spec/Impl: ALG-A/ALG-B. V: ORA (hand-computed). R: AUD-C, WFM. C: CH-M, CH-W (A02, A08). Accept: hand-computed completion times.
+P7-T02 [T1] Multi-queue pools, priorities, aggregate-curve approximation and labels. Refs: 4.6. Needs: P3-T03.
+ Spec/Impl: ALG-A/ALG-B. R: WFM, AUD-C. C: CH-W, CH-X (A08, A09). Accept: T28.
+P7-T03 [T2] Productivity factor and realized mix-weighted AHT. Refs: 4.7. Needs: P7-T02. Owner: ALG. R: WFM. C: CH-W (A08). Accept: T27.
+
+PHASE 8. Slice 6: forecast module (built last)
+P8-T01 [T1] History cleaning and exclusions. Refs: 5.2. Needs: P1-T09. Spec/Impl: DAT-A/DAT-B. R: AUD-P, WFM. C: CH-D, CH-W (A03, A08).
+P8-T02 [T1] Profiles, methods, quasi-Poisson regression. Refs: 5.3, 5.4. Needs: P2-T03.
+ Spec/Impl: DAT-A/DAT-B. V: ORA. R: AUD-C, WFM. C: CH-M (A02, A07). Skills: SK-FC, SK-STAT. Accept: T49, T50, T51.
+P8-T03 [T1] Rolling backtest, selection with Holm, leakage assertion. Refs: 5.5. Needs: P8-T02.
+ Spec/Impl: DAT-A/DAT-B. R: AUD-C. C: CH-M, CH-X (A07, A09). Accept: T48, T52.
+P8-T04 [T2] Comparison report and confirmation gate (S2, S3). Refs: 5.6, 5.7, 3.3. Needs: P8-T03, P1-T02.
+ Owner: DAT with FE. R: AUD-P, WFM. C: CH-W, CH-S (A04, A08). Accept: T4, T53, T54. Attack: unchosen forecast reaching the engine.
+Exit: Case 6, leakage and unbiasedness tests, PO demo.
+
+PHASE 9. Hardening
+P9-T01 [T2] Performance tuning and memory tests to approved targets. Refs: 15. Owner: ALG, ROS, COR (by hotspot). V: TST. R: AUD-P. C: CH-S (A10). Skills: SK-PERF.
+P9-T02 [T2] Security tests, CSP verification, untrusted-file fuzzing. Refs: 13.10. Owner: SEC. R: AUD-P. C: CH-S, CH-D (A11, A03). Accept: T13, T14, T15.
+P9-T03 [T2] Browser compatibility on the Environment matrix and accessibility checks. Refs: 13.12, 13.16. Owner: FE. V: TST. R: AUD-P. Skills: SK-A11Y.
+P9-T04 [T3] User guide, KPI dictionary, release notes. Refs: 12. Owner: DOC. R: BA, WFM.
+
+PHASE 10. Release validation
+P10-T01 [T1] Full integration test and all nine cases. Needs: Phases 1 to 9. Owner: TST. V: ORA. R: AUD-C, AUD-P. C: whole team (all codes).
+P10-T02 [T1] Holdout pack run by the Gate; WFM mathematical audit. Owner: GATE with WFM. R: AUD-C. C: CH-M, CH-X.
+P10-T03 [T2] Traceability audit. Owner: BA. R: AUD-P. C: CH-X (A09).
+P10-T04 [T1] User acceptance by the PO on the real operation. Owner: PO with WFM support. Output: signed acceptance and logged decisions.
+P10-T05 [T2] Release packaging, hashes, About panel, release notes. Owner: SEC with DOC. R: AUD-P.
+P10-T06 [T1] Final Gate and PO approval. Owner: GATE, PO.
+Exit: Section 24.4 release criteria.
+
+======================================================================
+SECTION 24. PROGRAM MANAGEMENT
+======================================================================
+
+24.1 Change control: every requirement change is a change request written by BA with an impact analysis (requirements, tasks, tests, phases), reviewed by ARC and WFM, challenged by CH-X and CH-W, and decided by the PO. Approved changes increment the PRD version, update traceability and mark affected tasks and sign-offs stale. No agent changes requirements, tolerances or protected files outside this process.
+24.2 Traceability: every Part A numbered item maps to tasks and tests, and the build fails on an uncovered requirement.
+24.3 Metrics (reviewed at each retrospective): reviewer and challenger detection rate on seeded defects; challenger false-positive rate; defect escape rate (found after the gate); rework cycles per task; gate rejection reasons including rejections without a valid citation; flaky tests; mutation kill rate; time in review; open Critical and High count; requirement coverage; attack-code coverage by Tier 1 task. A metric outside the PO's threshold triggers a recorded process change.
+24.4 Release criteria: all phase exits met; all Section 14 tests, nine cases and the holdout pack passing; no open Critical or High defect; every waiver recorded by the PO; traceability complete; WFM, technical and business acceptance present; challenger release sweep complete with all findings dispositioned; offline delivery verified; final HTML hash recorded; the Gate approves and the PO signs.
+
+======================================================================
+SECTION 25. OPEN DECISIONS FOR THE PRODUCT OWNER (before Phase 0)
+======================================================================
+
+O-01 Which AI models or providers fill each role, and whether AUD and the challenger team can use a different model from the implementers.
+O-02 Qualification thresholds, challenger false-positive tolerance, mutation kill rate.
+O-03 Rework limits before ARC review and before PO decision.
+O-04 Minimum number of independent challengers for Tier 1, and the Tier 2 sampling rate.
+O-05 Performance targets (Appendix A, TBD) after the Phase 0 benchmark.
+O-06 Supported browsers, from Phase 0 Environment results.
+O-07 Who supplies anonymized data for slice demos, and PO availability for demos.
+Resolved earlier: Release 1 scope; forecast module built last; LP plus heuristic roster; Erlang X excluded; constant HC over the horizon; horizon-level KPI targets with optional information-only guardrails; ZIP container; Case 8 as the benchmark.
+
+======================================================================
+SECTION 26. SKILLS REGISTRY (skill ID, meaning, proof exercise)
+======================================================================
+
+SK-ARCH Software architecture and ADRs. Proof: given a module list, produce a layered design that satisfies 13.1 and 13.2 and passes a planted-flaw review.
+SK-JSM Modular vanilla JavaScript without dependencies. Proof: implement a function set to fixtures with no forbidden APIs.
+SK-STATE State machines, fingerprints, staleness. Proof: implement the flow transition table and pass illegal-sequence tests.
+SK-WRK Web Workers, message protocols, cancellation. Proof: job runner with cancel and resume producing identical results.
+SK-DATA Data modeling, typed arrays, serialization, canonical forms. Proof: round-trip a schema with hash equality.
+SK-ZIP Container formats, CRC and hashing. Proof: write and read a stored ZIP, reject corrupted variants.
+SK-IDB IndexedDB and atomic persistence. Proof: crash-safe snapshot with recovery.
+SK-CSV CSV, encodings, date and number parsing, data cleaning. Proof: parse a hostile file set correctly.
+SK-UI Vanilla HTML, CSS, JavaScript UI and virtualization. Proof: large virtualized table with keyboard use.
+SK-A11Y Accessibility. Proof: pass an accessibility checklist on a form.
+SK-VIS Canvas and SVG charts. Proof: render a heatmap and a response curve from data.
+SK-QUE Queueing theory (Erlang B, C, A, M/M/N+M). Proof: derive and compute Erlang results by hand and match tables.
+SK-DES Discrete-event simulation. Proof: M/M/N DES matching closed forms with correct tie handling.
+SK-RNG Keyed random generation and sampling. Proof: pass the statistical battery; show order independence.
+SK-STAT Statistics (intervals, tests, bootstrap, sequential and multiple testing). Proof: identify planted statistical errors in a procedure.
+SK-NUM Numerical analysis. Proof: stable computation across extreme parameters with stated tolerances.
+SK-LP Linear programming, simplex, column generation. Proof: solve a covering LP with pricing and verify against brute force.
+SK-OR Scheduling, heuristics, network flow. Proof: produce shift and break schedules satisfying rules; compare to brute force.
+SK-FC Forecasting, regression, backtesting. Proof: recover known parameters from synthetic series with no leakage.
+SK-WFM Contact center workforce management. Proof: compute SL, occupancy and shrinkage bridges; spot planted WFM errors.
+SK-REQ Requirements engineering and traceability. Proof: convert a vague requirement into testable criteria.
+SK-TEST Unit, property-based, mutation and golden testing. Proof: tests that kill planted mutants.
+SK-ORCL Blind independent implementation. Proof: reproduce a function from a spec in another language without seeing the code.
+SK-SEC Security (XSS, CSP, untrusted input). Proof: find planted vulnerabilities in a sample.
+SK-BLD Build systems, deterministic builds, scans. Proof: build twice with identical hashes; scans catch planted violations.
+SK-PERF Performance engineering. Proof: profile and bound the cost of a workload.
+SK-AUD Evidence-based code and algorithm audit. Proof: find planted defects and cite evidence.
+SK-ADV Adversarial and failure-mode analysis. Proof: produce reproducible counterexamples for planted weaknesses.
+SK-DOC Technical writing and specification. Proof: a specification from which ORA can implement without questions.
+SK-GOV Evidence checking and gate governance. Proof: reject a package with planted evidence gaps and accept a complete one.
+SK-PM Task graph and program tracking. Proof: schedule tasks with dependency and independence traps.
+
+======================================================================
+SECTION 27. COMMUNICATION CONTRACTS
+======================================================================
+
+27.1 Task Packet (ORC to an agent): task card (21.4); the context pack (only the allowed artifact classes, with hashes); the role card and prompt skeleton (19.3); the acceptance criteria; deadlines and stop conditions.
+27.2 Evidence Package (agent to ORC): task ID and role instance; artifact hashes read and produced; commands run with their outputs (never summaries); the quality checklist with each item marked; open questions; verdict if the role gives one.
+27.3 Finding Report: finding ID; type (DEFECT, SPEC-AMBIGUITY, PROCESS, TEST-GAP); severity (21.6); requirement ID; evidence (reproducible input, command, expected, observed, or a formal argument); suggested test; status (open, valid, invalid, duplicate, fixed, verified).
+27.4 Attack Log: task ID; challenger instance; for each attack: attack code, attack description, input, expected, observed, result (survived or broke); coverage statement listing assigned codes.
+27.5 Sign-off Record: role instance; task; artifact hashes reviewed; verdict (APPROVE, REJECT, APPROVE WITH CONDITIONS where conditions are Low or Medium only); cited criteria; date. Invalid when any hash changes.
+27.6 Escalation Message: task ID; reason (ambiguity, conflict, independence violation, repeated rejection, missing input); options considered; the decision needed and from whom.
+27.7 Rules: messages are plain text in these formats; free-form claims without evidence are ignored; a message that omits required fields is returned unprocessed.
+
+======================================================================
+APPENDIX B. PROGRAM PARAMETERS (Class P, set by the Product Owner before Phase 0, no defaults)
+======================================================================
+
+Qualification thresholds per role (detection rate, false-positive tolerance); mutation kill rate; rework limits (before ARC review, before PO decision); WIP limits; time box for finding triage; minimum number of independent challengers for Tier 1; Tier 2 challenger sampling rate; spike pass criteria; slice demo cadence; model assignment per role; seeded-defect packages per role.
+All values are recorded in the governance register with the date and the approver. Any program number not recorded there is a defect.
+
+End of PRD v7.1 (complete)
