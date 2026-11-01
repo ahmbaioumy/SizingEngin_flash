@@ -172,12 +172,12 @@ export function simulateReplication(
       const arrivalTimeSec = intervalStartSec + uArr * intervalSec;
 
       // Realized service time (lognormal around fct.ahtSec * productivity)
-      const meanAht = fct.ahtSec * poolConfig.productivityFactor;
-      const cv = queueConfig.patienceCV || 0.6;
+      const meanAht = fct.ahtSec * (poolConfig.productivityFactor ?? 1.0);
+      const cv = queueConfig.patienceCV ?? 0.6;
       const serviceDurationSec = Math.max(1.0, prng.nextLognormal(meanAht, cv));
 
       // Customer patience (exponential variate)
-      const patienceSec = prng.nextExponential(1.0 / Math.max(10, queueConfig.meanPatienceSec));
+      const patienceSec = prng.nextExponential(1.0 / Math.max(10, queueConfig.meanPatienceSec ?? 180));
       const abandonTimeSec = arrivalTimeSec + patienceSec;
 
       const contact: DesContact = {
@@ -261,7 +261,7 @@ export function simulateReplication(
     switch (event.type) {
       case 'SHIFT_CHANGE': {
         const nextSeats = event.data.seats;
-        currentSeats = Math.max(poolConfig.minSeatsWhileOpen, nextSeats);
+        currentSeats = Math.max(poolConfig.minSeatsWhileOpen ?? 1, nextSeats);
         // If new seats became available, dispatch waiting contacts
         while (waitingQueue.length > 0 && activeInService < currentSeats) {
           const contact = waitingQueue.shift()!;
@@ -332,7 +332,7 @@ export function simulateReplication(
     totalWaitTimeSec += waitTime;
     totalAnswered++;
 
-    if (waitTime <= queueConfig.targetSLTime) {
+    if (waitTime <= (queueConfig.targetSLTime ?? 20)) {
       contact.answeredWithinTarget = true;
       answeredWithinTarget++;
     }
@@ -363,7 +363,7 @@ export function simulateReplication(
   // Occupancy = total workload seconds / total seat capacity seconds
   let totalSeatAvailableSec = 0;
   for (let i = 0; i < totalIntervals; i++) {
-    totalSeatAvailableSec += (seatCurve[i] ?? poolConfig.minSeatsWhileOpen) * intervalSec;
+    totalSeatAvailableSec += (seatCurve[i] ?? (poolConfig.minSeatsWhileOpen ?? 1)) * intervalSec;
   }
   const occupancy = totalSeatAvailableSec > 0 ? totalWorkloadSec / totalSeatAvailableSec : 0.0;
 

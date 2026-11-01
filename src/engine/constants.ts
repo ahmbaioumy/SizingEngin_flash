@@ -24,6 +24,7 @@ export const CONSTANTS_REGISTER = [
   { name: 'HASH_MIXER_C1', value: 0xcc9e2d51, class: 'K', provenance: 'Murmur3 32-bit constant c1' },
   { name: 'HASH_MIXER_C2', value: 0x1b873593, class: 'K', provenance: 'Murmur3 32-bit constant c2' },
   { name: 'HASH_SEED_DEFAULT', value: 0x9747b28c, class: 'K', provenance: 'Standard deterministic hash seed' },
+  { name: 'CRC32_POLYNOMIAL', value: 0xedb88320, class: 'K', provenance: 'ZIP/PKWARE spec' },
 ] as const;
 
 export const K = {
@@ -43,6 +44,7 @@ export const K = {
   HASH_MIXER_C1: 0xcc9e2d51,
   HASH_MIXER_C2: 0x1b873593,
   HASH_SEED_DEFAULT: 0x9747b28c,
+  CRC32_POLYNOMIAL: 0xedb88320,
 } as const;
 
 export function hashString128(input: string): string {

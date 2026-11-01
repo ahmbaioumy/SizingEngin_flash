@@ -85,7 +85,7 @@ export const ModeBView: React.FC<ModeBViewProps> = ({
             {(kpi?.sl * 100).toFixed(1)}%
           </div>
           <div className="text-[11px] text-slate-400 mt-1">
-            Target: &ge; {(queueConfig.targetSL * 100).toFixed(0)}% in {queueConfig.targetSLTime}s
+            Target: &ge; {queueConfig.targetSL !== null ? (queueConfig.targetSL * 100).toFixed(0) : '—'}% in {queueConfig.targetSLTime ?? '—'}s
           </div>
           <div className="mt-2 text-xs font-bold">
             {kpi?.slPassed ? (
@@ -125,7 +125,7 @@ export const ModeBView: React.FC<ModeBViewProps> = ({
             {(kpi?.abandonmentRate * 100).toFixed(1)}%
           </div>
           <div className="text-[11px] text-slate-400 mt-1">
-            Target Cap: &le; {(queueConfig.maxAbandonmentRate * 100).toFixed(0)}%
+            Target Cap: &le; {queueConfig.maxAbandonmentRate !== null ? (queueConfig.maxAbandonmentRate * 100).toFixed(0) : '—'}%
           </div>
           <div className="mt-2 text-xs font-bold">
             {kpi?.abandonmentPassed ? (

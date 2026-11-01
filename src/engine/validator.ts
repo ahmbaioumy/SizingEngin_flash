@@ -17,8 +17,9 @@ import { ShiftSchedule, RosterRuleConfig, ValidatorReport, ValidatorViolation } 
 export function validateScheduleIndependently(
   schedules: ShiftSchedule[],
   rules: RosterRuleConfig,
-  minSeatsWhileOpen: number = 1
+  minSeatsWhileOpen: number | null | undefined = 1
 ): ValidatorReport {
+  const effectiveMinSeats = minSeatsWhileOpen ?? 1;
   const violations: ValidatorViolation[] = [];
 
   // Group schedules by agent
@@ -85,7 +86,7 @@ export function validateScheduleIndependently(
       }
 
       // Rule 3: Breaks verification
-      if (shift.breaks.length < rules.breakCount) {
+      if (rules.breakCount !== null && shift.breaks.length < rules.breakCount) {
         violations.push({
           ruleCode: 'R3_BREAK_COUNT',
           ruleName: 'Break Count',
@@ -97,7 +98,7 @@ export function validateScheduleIndependently(
       }
 
       for (const brk of shift.breaks) {
-        if (brk.durationMinutes < rules.breakDurationMinutes) {
+        if (rules.breakDurationMinutes !== null && brk.durationMinutes < rules.breakDurationMinutes) {
           violations.push({
             ruleCode: 'R3_BREAK_DURATION',
             ruleName: 'Break Duration',
@@ -111,7 +112,7 @@ export function validateScheduleIndependently(
 
       // Rule 4: Maximum consecutive work days
       consecutiveWorkDays++;
-      if (consecutiveWorkDays > rules.maxConsecutiveWorkDays) {
+      if (rules.maxConsecutiveWorkDays !== null && consecutiveWorkDays > rules.maxConsecutiveWorkDays) {
         violations.push({
           ruleCode: 'R4_CONSECUTIVE_DAYS',
           ruleName: 'Max Consecutive Work Days',
@@ -133,7 +134,7 @@ export function validateScheduleIndependently(
           const currStartMinuteTotal = shift.dayIndex * 24 * 60 + currStartH * 60 + currStartM;
           const restHours = (currStartMinuteTotal - prevEndMinuteTotal) / 60;
 
-          if (restHours < rules.minRestBetweenShiftsHours) {
+          if (rules.minRestBetweenShiftsHours !== null && restHours < rules.minRestBetweenShiftsHours) {
             violations.push({
               ruleCode: 'R5_REST_BETWEEN_SHIFTS',
               ruleName: 'Minimum Rest Between Shifts',
@@ -150,7 +151,7 @@ export function validateScheduleIndependently(
 
       // Check weekly boundaries (every 7 days or end of cycle)
       if ((i + 1) % 7 === 0 || i === sorted.length - 1) {
-        if (weeklyHours < rules.minWeeklyHours) {
+        if (rules.minWeeklyHours !== null && weeklyHours < rules.minWeeklyHours) {
           violations.push({
             ruleCode: 'R6_MIN_WEEKLY_HOURS',
             ruleName: 'Minimum Weekly Hours',
@@ -160,7 +161,7 @@ export function validateScheduleIndependently(
             description: `Weekly hours ${weeklyHours}h is below minimum ${rules.minWeeklyHours}h`,
           });
         }
-        if (weeklyHours > rules.maxWeeklyHours) {
+        if (rules.maxWeeklyHours !== null && weeklyHours > rules.maxWeeklyHours) {
           violations.push({
             ruleCode: 'R6_MAX_WEEKLY_HOURS',
             ruleName: 'Maximum Weekly Hours',
@@ -170,7 +171,7 @@ export function validateScheduleIndependently(
             description: `Weekly hours ${weeklyHours}h exceeds maximum ${rules.maxWeeklyHours}h`,
           });
         }
-        if (offDaysCount < rules.weeklyOffDays) {
+        if (rules.weeklyOffDays !== null && offDaysCount < rules.weeklyOffDays) {
           violations.push({
             ruleCode: 'R7_WEEKLY_OFF_DAYS',
             ruleName: 'Weekly OFF Days',
@@ -189,12 +190,12 @@ export function validateScheduleIndependently(
   // 2. Validate Minimum Seats While Open
   for (const [dayIdx, shiftsOnDay] of dayShiftMap.entries()) {
     const activeWorking = shiftsOnDay.filter((s) => !s.isOffDay && s.shiftStart !== 'OFF');
-    if (activeWorking.length < minSeatsWhileOpen) {
+    if (activeWorking.length < effectiveMinSeats) {
       violations.push({
         ruleCode: 'R8_MIN_SEATS',
         ruleName: 'Minimum Seats While Open',
         severity: 'HARD',
-        description: `Day ${dayIdx} has only ${activeWorking.length} active agents scheduled, below minimum ${minSeatsWhileOpen}`,
+        description: `Day ${dayIdx} has only ${activeWorking.length} active agents scheduled, below minimum ${effectiveMinSeats}`,
       });
     }
   }

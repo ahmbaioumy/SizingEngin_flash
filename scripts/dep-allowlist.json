@@ -1,0 +1,17 @@
+{
+  "dependencies": [
+    "react",
+    "react-dom",
+    "lucide-react"
+  ],
+  "devDependencies": [
+    "vite",
+    "tailwindcss",
+    "@tailwindcss/vite",
+    "@vitejs/plugin-react",
+    "typescript",
+    "esbuild",
+    "autoprefixer",
+    "@types/*"
+  ]
+}

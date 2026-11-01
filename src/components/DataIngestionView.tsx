@@ -34,6 +34,7 @@ export const DataIngestionView: React.FC<DataIngestionViewProps> = ({
   const [cleaningReport, setCleaningReport] = useState<CleanedDatasetReport | null>(existingReport || null);
   const [cleanedRecords, setCleanedRecords] = useState<IntervalForecastRecord[]>(existingRecords || []);
   const [duplicateRule, setDuplicateRule] = useState<'FIRST' | 'LAST' | 'EXCLUDE_ALL'>('FIRST');
+  const [isExampleDataset, setIsExampleDataset] = useState<boolean>(false);
 
   // Handle file drop / upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,23 +132,41 @@ export const DataIngestionView: React.FC<DataIngestionViewProps> = ({
             </label>
 
             <button
-              onClick={loadSampleDataset}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-3 py-2 rounded-lg text-xs font-semibold transition"
+              onClick={() => {
+                setIsExampleDataset(true);
+                loadSampleDataset();
+              }}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-700/60 px-3 py-2 rounded-lg text-xs font-semibold transition"
             >
-              <Sparkles className="w-4 h-4 text-sky-400" />
-              <span>Load 1-Week Voice FCT</span>
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>Load example dataset</span>
             </button>
 
             <button
-              onClick={loadHostileTestDataset}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-3 py-2 rounded-lg text-xs font-semibold transition"
+              onClick={() => {
+                setIsExampleDataset(true);
+                loadHostileTestDataset();
+              }}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-700/60 px-3 py-2 rounded-lg text-xs font-semibold transition"
               title="Test PRD 6-step cleaner on negatives, duplicates, and AHT=0"
             >
-              <AlertOctagon className="w-4 h-4 text-amber-400" />
-              <span>Load Hostile CSV (Test 6-Step)</span>
+              <AlertOctagon className="w-4 h-4 text-purple-400" />
+              <span>Load Hostile CSV (Example)</span>
             </button>
           </div>
         </div>
+
+        {isExampleDataset && (
+          <div className="mt-4 p-3 bg-amber-950/40 border border-amber-800/80 rounded-lg flex items-center justify-between text-xs">
+            <span className="text-amber-300 font-semibold flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              Data Source: Example Dataset (PRD N3 / 4.10 Policy - Confirmation Required)
+            </span>
+            <span className="text-amber-400 font-mono text-[11px]">
+              Confirmation logged upon Stage 3 Forecast Locking
+            </span>
+          </div>
+        )}
 
         {/* Column Mapping Selectors */}
         {headers.length > 0 && (

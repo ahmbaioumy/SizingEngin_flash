@@ -53,6 +53,18 @@ export function solveLayer1PureRequirement(
   contractHoursPerWeek: number = 40,
   horizonWeeks: number = 1
 ): Layer1Result {
+  if (
+    queueConfig.targetSL === null ||
+    queueConfig.targetSLTime === null ||
+    queueConfig.targetAnswerRate === null ||
+    queueConfig.maxAbandonmentRate === null ||
+    poolConfig.productivityFactor === null ||
+    poolConfig.minSeatsWhileOpen === null ||
+    poolConfig.hcSearchCeiling === null
+  ) {
+    throw new Error('PARAM_MISSING: Required operational parameters are missing. Sizing run is blocked.');
+  }
+
   const totalIntervals = intervals.length;
   const intervalMinutes = intervals[0]?.intervalMinutes || 30;
   const intervalHours = intervalMinutes / K.MINUTES_PER_HOUR;
@@ -85,8 +97,12 @@ export function solveLayer1PureRequirement(
     const gArr: number[] = [];
     let isConcave = true;
 
+    const targetSLTime = queueConfig.targetSLTime;
+    const targetSL = queueConfig.targetSL;
+    const meanPatienceSec = queueConfig.meanPatienceSec ?? 180;
+
     for (let s = minSeats; s <= maxSeats; s++) {
-      const erl = evaluateErlangA(offeredErlangs, s, queueConfig.targetSLTime, fct.ahtSec, queueConfig.meanPatienceSec);
+      const erl = evaluateErlangA(offeredErlangs, s, targetSLTime, fct.ahtSec, meanPatienceSec);
       const gain = fct.volume * erl.serviceLevel;
       sArr.push(s);
       gArr.push(gain);
@@ -105,8 +121,8 @@ export function solveLayer1PureRequirement(
     // Initial allocation satisfying interval targets
     let allocatedSeats = minSeats;
     for (let s = minSeats; s <= maxSeats; s++) {
-      const erl = evaluateErlangA(offeredErlangs, s, queueConfig.targetSLTime, fct.ahtSec, queueConfig.meanPatienceSec);
-      if (erl.serviceLevel >= queueConfig.targetSL && erl.occupancy <= (poolConfig.occupancyCap || 0.95)) {
+      const erl = evaluateErlangA(offeredErlangs, s, targetSLTime, fct.ahtSec, meanPatienceSec);
+      if (erl.serviceLevel >= targetSL && erl.occupancy <= (poolConfig.occupancyCap || 0.95)) {
         allocatedSeats = s;
         break;
       }
@@ -171,7 +187,8 @@ export function generateRosterForHc(
 
     for (let day = 0; day < totalDays; day++) {
       const dayOfWeek = day % 7;
-      const isOff = dayOfWeek === offDay1 || (rosterRules.weeklyOffDays >= 2 && dayOfWeek === offDay2);
+      const offDays = rosterRules.weeklyOffDays ?? 2;
+      const isOff = dayOfWeek === offDay1 || (offDays >= 2 && dayOfWeek === offDay2);
 
       const dateStr = intervals[day * intervalsPerDay]?.date || `Day-${day + 1}`;
 
@@ -286,6 +303,28 @@ export function evaluateCandidateHc(
   fidelity: Fidelity,
   seedBlock: number
 ): { passed: boolean; kpis: SimulatedKpiResult[]; seatCurve: number[]; schedules: ShiftSchedule[] } {
+  if (
+    queueConfig.targetSL === null ||
+    queueConfig.targetSLTime === null ||
+    queueConfig.targetASA === null ||
+    queueConfig.targetAnswerRate === null ||
+    queueConfig.maxAbandonmentRate === null ||
+    poolConfig.productivityFactor === null ||
+    poolConfig.minSeatsWhileOpen === null ||
+    poolConfig.hcSearchCeiling === null
+  ) {
+    throw new Error('PARAM_MISSING: Required operational parameters are missing.');
+  }
+
+  const targetSL = queueConfig.targetSL;
+  const targetSLTime = queueConfig.targetSLTime;
+  const targetASA = queueConfig.targetASA;
+  const targetAnswerRate = queueConfig.targetAnswerRate;
+  const maxAbandonmentRate = queueConfig.maxAbandonmentRate;
+  const minSeats = poolConfig.minSeatsWhileOpen;
+  const prodFactor = poolConfig.productivityFactor;
+  const meanPatience = queueConfig.meanPatienceSec ?? 180;
+
   const schedules = generateRosterForHc(h, intervals, rosterRules, poolConfig, intervals[0]?.intervalMinutes || 30);
   const seatCurve = convertRosterToSeatCurve(schedules, intervals.length, intervals[0]?.intervalMinutes || 30);
 
@@ -297,9 +336,9 @@ export function evaluateCandidateHc(
 
     for (let i = 0; i < intervals.length; i++) {
       const fct = intervals[i];
-      const seats = Math.max(poolConfig.minSeatsWhileOpen, seatCurve[i]);
-      const offeredErlangs = (fct.volume * fct.ahtSec * poolConfig.productivityFactor) / ((fct.intervalMinutes || 30) * 60);
-      const erl = evaluateErlangA(offeredErlangs, seats, queueConfig.targetSLTime, fct.ahtSec, queueConfig.meanPatienceSec);
+      const seats = Math.max(minSeats, seatCurve[i]);
+      const offeredErlangs = (fct.volume * fct.ahtSec * prodFactor) / ((fct.intervalMinutes || 30) * 60);
+      const erl = evaluateErlangA(offeredErlangs, seats, targetSLTime, fct.ahtSec, meanPatience);
 
       totalOffered += fct.volume;
       totalWorkload += fct.volume * fct.ahtSec;
@@ -307,25 +346,25 @@ export function evaluateCandidateHc(
     }
 
     const estimatedSL = totalOffered > 0 ? weightedSlSum / totalOffered : 0.85;
-    const passed = estimatedSL >= queueConfig.targetSL;
+    const passed = estimatedSL >= targetSL;
 
     const kpi: SimulatedKpiResult = {
       queueId: queueConfig.id,
       sl: estimatedSL,
       slConfidenceInterval: [estimatedSL - 0.01, estimatedSL + 0.01],
-      slTarget: queueConfig.targetSL,
+      slTarget: targetSL,
       slPassed: passed,
       asaSec: 22.0,
-      asaTarget: queueConfig.targetASA,
+      asaTarget: targetASA,
       asaPassed: true,
       answerRate: 0.96,
-      answerRateTarget: queueConfig.targetAnswerRate,
+      answerRateTarget: targetAnswerRate,
       answerRatePassed: true,
       abandonmentRate: 0.04,
-      abandonmentTarget: queueConfig.maxAbandonmentRate,
+      abandonmentTarget: maxAbandonmentRate,
       abandonmentPassed: true,
       occupancy: 0.82,
-      occupancyTarget: poolConfig.occupancyCap,
+      occupancyTarget: poolConfig.occupancyCap ?? undefined,
       occupancyPassed: true,
       overallPassed: passed,
       bindingKpi: passed ? 'None (All Targets Met)' : 'Service Level (SL1)',
@@ -353,38 +392,38 @@ export function evaluateCandidateHc(
   const abnStats = computeKpiConfidenceInterval(abnVals, 0.95, false);
   const occStats = computeKpiConfidenceInterval(occVals, 0.95, false);
 
-  const slPassed = slStats.bound >= queueConfig.targetSL;
-  const asaPassed = asaStats.bound <= queueConfig.targetASA;
-  const ansPassed = ansStats.bound >= queueConfig.targetAnswerRate;
-  const abnPassed = abnStats.bound <= queueConfig.maxAbandonmentRate;
+  const slPassed = slStats.bound >= targetSL;
+  const asaPassed = asaStats.bound <= targetASA;
+  const ansPassed = ansStats.bound >= targetAnswerRate;
+  const abnPassed = abnStats.bound <= maxAbandonmentRate;
   const occPassed = poolConfig.occupancyCap ? occStats.bound <= poolConfig.occupancyCap : true;
 
   const overallPassed = slPassed && asaPassed && ansPassed && abnPassed && occPassed;
 
   let bindingKpi = 'None (All Targets Met)';
-  if (!slPassed) bindingKpi = `Service Level (SL1: ${(slStats.bound * 100).toFixed(1)}% < ${(queueConfig.targetSL * 100).toFixed(1)}%)`;
-  else if (!ansPassed) bindingKpi = `Answer Rate (${(ansStats.bound * 100).toFixed(1)}% < ${(queueConfig.targetAnswerRate * 100).toFixed(1)}%)`;
-  else if (!abnPassed) bindingKpi = `Abandonment Rate (${(abnStats.bound * 100).toFixed(1)}% > ${(queueConfig.maxAbandonmentRate * 100).toFixed(1)}%)`;
-  else if (!asaPassed) bindingKpi = `ASA (${asaStats.bound.toFixed(1)}s > ${queueConfig.targetASA}s)`;
+  if (!slPassed) bindingKpi = `Service Level (SL1: ${(slStats.bound * 100).toFixed(1)}% < ${(targetSL * 100).toFixed(1)}%)`;
+  else if (!ansPassed) bindingKpi = `Answer Rate (${(ansStats.bound * 100).toFixed(1)}% < ${(targetAnswerRate * 100).toFixed(1)}%)`;
+  else if (!abnPassed) bindingKpi = `Abandonment Rate (${(abnStats.bound * 100).toFixed(1)}% > ${(maxAbandonmentRate * 100).toFixed(1)}%)`;
+  else if (!asaPassed) bindingKpi = `ASA (${asaStats.bound.toFixed(1)}s > ${targetASA}s)`;
   else if (!occPassed) bindingKpi = `Occupancy Cap (${(occStats.bound * 100).toFixed(1)}% > ${((poolConfig.occupancyCap || 0) * 100).toFixed(1)}%)`;
 
   const kpi: SimulatedKpiResult = {
     queueId: queueConfig.id,
     sl: slStats.mean,
     slConfidenceInterval: [slStats.lowerBound, slStats.upperBound],
-    slTarget: queueConfig.targetSL,
+    slTarget: targetSL,
     slPassed,
     asaSec: asaStats.mean,
-    asaTarget: queueConfig.targetASA,
+    asaTarget: targetASA,
     asaPassed,
     answerRate: ansStats.mean,
-    answerRateTarget: queueConfig.targetAnswerRate,
+    answerRateTarget: targetAnswerRate,
     answerRatePassed: ansPassed,
     abandonmentRate: abnStats.mean,
-    abandonmentTarget: queueConfig.maxAbandonmentRate,
+    abandonmentTarget: maxAbandonmentRate,
     abandonmentPassed: abnPassed,
     occupancy: occStats.mean,
-    occupancyTarget: poolConfig.occupancyCap,
+    occupancyTarget: poolConfig.occupancyCap ?? undefined,
     occupancyPassed: occPassed,
     overallPassed,
     bindingKpi,
@@ -405,6 +444,14 @@ export function solveLayer2Schedule(
   fidelity: Fidelity,
   seedBlock: number
 ): Layer2Result {
+  if (
+    poolConfig.hcSearchCeiling === null ||
+    rosterRules.allowedShiftStarts.length === 0 ||
+    rosterRules.allowedShiftLengths.length === 0
+  ) {
+    throw new Error('PARAM_MISSING: Required schedule parameters are missing. Sizing run is blocked.');
+  }
+
   const reps = fidelity === 'CERTIFIED' ? 30 : fidelity === 'SCREENED' ? 10 : 1;
   const ceiling = poolConfig.hcSearchCeiling;
   const lowerBound = Math.max(1, layer1.rigorousLowerBoundHc);

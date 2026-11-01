@@ -18,46 +18,53 @@ export interface QueueConfig {
   id: string;
   name: string;
   queueClass: QueueClass;
-  targetSL: number; // e.g. 0.80 (80%)
-  targetSLTime: number; // e.g. 20 (seconds)
+  targetSL: number | null; // e.g. 0.80 (80%)
+  targetSLTime: number | null; // e.g. 20 (seconds)
   slType: SLType;
-  targetASA: number; // e.g. 30 (seconds)
-  targetAnswerRate: number; // e.g. 0.95 (95%)
-  maxAbandonmentRate: number; // e.g. 0.05 (5%)
-  targetDeadlinePct?: number; // for deferrable, e.g. 0.98 (98%)
-  maxBacklogEnd?: number; // for deferrable, e.g. 0
-  meanPatienceSec: number; // e.g. 180 sec
-  patienceCV: number; // e.g. 0.8
-  concurrencyLimit?: number; // for chat, e.g. 2 or 3
+  targetASA: number | null; // e.g. 30 (seconds)
+  targetAnswerRate: number | null; // e.g. 0.95 (95%)
+  maxAbandonmentRate: number | null; // e.g. 0.05 (5%)
+  targetDeadlinePct?: number | null; // for deferrable, e.g. 0.98 (98%)
+  maxBacklogEnd?: number | null; // for deferrable, e.g. 0
+  meanPatienceSec: number | null; // e.g. 180 sec
+  patienceCV: number | null; // e.g. 0.8
+  concurrencyLimit?: number | null; // for chat, e.g. 2 or 3
 }
 
 export interface PoolConfig {
   id: string;
   name: string;
   queueIds: string[];
-  productivityFactor: number; // 1.0 = baseline, 0.9 = faster, 1.1 = slower
-  minSeatsWhileOpen: number; // required minimum seats
-  hcSearchCeiling: number; // required HC search ceiling
-  occupancyCap?: number; // optional, e.g. 0.88
+  productivityFactor: number | null; // 1.0 = baseline, 0.9 = faster, 1.1 = slower
+  minSeatsWhileOpen: number | null; // required minimum seats
+  hcSearchCeiling: number | null; // required HC search ceiling
+  occupancyCap?: number | null; // optional, e.g. 0.88
 }
 
 export interface RosterRuleConfig {
   allowedShiftStarts: string[]; // e.g. ["07:00", "08:00", "09:00", "13:00", "14:00", "22:00"]
   allowedShiftLengths: number[]; // e.g. [8, 9] (in hours)
-  breakCount: number; // e.g. 2
-  breakDurationMinutes: number; // e.g. 30
-  breakWindowStartHour: number; // e.g. after 2h from start
-  breakWindowEndHour: number; // e.g. before 2h from end
-  minBreakSeparationMinutes: number; // e.g. 90
+  breakCount: number | null; // e.g. 2
+  breakDurationMinutes: number | null; // e.g. 30
+  breakWindowStartHour: number | null; // e.g. after 2h from start
+  breakWindowEndHour: number | null; // e.g. before 2h from end
+  minBreakSeparationMinutes: number | null; // e.g. 90
   breaksPaid: boolean;
   breaksCountTowardContract: boolean;
-  weeklyOffDays: number; // e.g. 2
+  weeklyOffDays: number | null; // e.g. 2
   adjacentOffDaysRequired: boolean;
-  maxConsecutiveWorkDays: number; // e.g. 5
-  minRestBetweenShiftsHours: number; // e.g. 11
-  minWeeklyHours: number; // e.g. 36
-  maxWeeklyHours: number; // e.g. 40
-  rosterCycleWeeks: number; // e.g. 1 or 2
+  maxConsecutiveWorkDays: number | null; // e.g. 5
+  minRestBetweenShiftsHours: number | null; // e.g. 11
+  minWeeklyHours: number | null; // e.g. 36
+  maxWeeklyHours: number | null; // e.g. 40
+  rosterCycleWeeks: number | null; // e.g. 1 or 2
+}
+
+export interface ConfigCompletenessReport {
+  isBlocked: boolean;
+  missingRequiredFields: string[];
+  unconfirmedExampleFields: string[];
+  allFieldsConfirmed: boolean;
 }
 
 export interface ShrinkageComponent {
